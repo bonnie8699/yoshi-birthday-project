@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Yoshi's Magic Tongue</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM (UMD) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel Standalone -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #111; /* Dark border for letterboxing */
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+      }
+      #root { 
+          width: 100%; 
+          height: 100%; 
+          display: flex;
+          justify-content: center;
+          align-items: center;
+      }
+      .font-retro { font-family: 'Courier New', Courier, monospace; }
+      
+      /* Force the canvas to maintain 4:3 Aspect Ratio and fit within viewport */
+      canvas {
+          background-color: #63adff; /* Sky Blue Default */
+          image-rendering: pixelated;
+          /* This ensures the element is always 4:3, regardless of screen shape */
+          width: min(100vw, 133.33vh);
+          height: min(100vh, 75vw);
+          box-shadow: 0 0 20px rgba(0,0,0,0.5);
+      }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- MAIN GAME SCRIPT -->
+    <script type="text/babel" data-presets="typescript,react">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // ==========================================
+        // 1. CONSTANTS
+        // ==========================================
+        const SCREEN_WIDTH = 320;
+        const SCREEN_HEIGHT = 240;
+        const TONGUE_SPEED = 900; 
+        const TARGET_COUNT = 10; 
+        const ITEM_SCALE = 2; 
+
+        const COLORS = {
+            SKY: '#63adff', // Bright Blue
+            SKY_ACCENT: '#a2d1ff',
+            PASTEL_PURPLE: '#e6cfff', // Distant clouds
+            PASTEL_PINK: '#ffccdd',
+            GRASS_TOP: '#55efc4', // Minty bright green
+            GRASS_SHADOW: '#00b894',
+            DIRT_LIGHT: '#feca57', // Golden dirt
+            DIRT_DARK: '#e67e22', // Darker orange/brown
+            TONGUE: '#ff3333',
+            TEXT: '#ffffff',
+            UI_BG: 'rgba(0, 0, 0, 0.4)'
+        };
+
+        const PAL = {
+            _: null,
+            W: '#ffffff', // White
+            K: '#000000', // Black
+            G: '#00b894', // Green (Yoshi)
+            L: '#55efc4', // Light Green
+            R: '#ff6b6b', // Red
+            O: '#feca57', // Orange
+            Y: '#ffff99', // Yellow
+            B: '#54a0ff', // Blue
+            P: '#a29bfe', // Purple
+            X: '#636e72', // Grey
+            // Castle / Cloud Palette
+            C: '#dfe6e9', // Light Grey (Castle)
+            S: '#b2bec3', // Dark Grey (Shadow)
+            U: '#74b9ff', // Window Blue
+            F: '#fd79a8', // Flag Pink
+        };
+
+        // ==========================================
+        // 2. ASSETS
+        // ==========================================
+        
+        const YOSHI_IDLE = [
+            "______GGGG______",
+            "_____GWWWWG_____",
+            "____GWWWWGGGG___",
+            "____GWWGGGGGGG__",
+            "____GGGGGGGGGRR_",
+            "_____GGGGGGGGGRR",
+            "_____GGGGGGGGGG_",
+            "____GGGGGGW_____",
+            "____OGGGGGW_____",
+            "____OGGGGW______",
+            "____OO_OO_______",
+        ];
+
+        const APPLE_SPRITE = [
+            "___G____",
+            "__RRR___",
+            "_RRRRR__",
+            "_RRRRR__",
+            "_RRRRR__",
+            "__RRR___",
+        ];
+
+        const MELON_SPRITE = [
+            "___L____",
+            "__LGL___",
+            "_LGLGL__",
+            "_GLGLG__",
+            "_LGLGL__",
+            "__GLG___",
+        ];
+
+        const GIFT_SPRITE = [
+            "__YYY___",
+            "_BBYBB__",
+            "_BYYYB__",
+            "_BBYBB__",
+            "_BBYBB__",
+            "_BBBBB__",
+        ];
+
+        const BOMB_SPRITE = [
+            "____R___",
+            "___W____",
+            "__KXK___",
+            "_KXXXK__",
+            "_KXXXK__",
+            "__KKK___",
+        ];
+
+        // New Aesthetic Assets
+        const CASTLE_SPRITE = [
+            "____F_______F___",
+            "____K_______K___",
+            "___CC_______CC__",
+            "__CCCC_____CCCC_",
+            "_CCCCCC___CCCCCC",
+            "_CCCCCC___CCCCCC",
+            "CCCCCCCCCCCCCCCC",
+            "CCUUUCCCCCCCUUUC",
+            "CCUUUCCCCCCCUUUC",
+            "CCCCCCCCCCCCCCCC",
+            "CCCCCCCUUUCCCCCC",
+            "CCCCCCCUUUCCCCCC",
+            "SSSSSSSSSSSSSSSS",
+        ];
+
+        const CLOUD_SPRITE = [
+            "______WWWW______",
+            "____WWWWWWWW____",
+            "__WWWWWWWWWWWW__",
+            "_WWWWWWWWWWWWWW_",
+            "WWWWWWWWWWWWWWWW",
+            "_WWWWWWWWWWWWWW_",
+        ];
+
+        // ==========================================
+        // 3. AUDIO ENGINE
+        // ==========================================
+        class AudioEngine {
+            constructor() { this.ctx = null; }
+            getContext() {
+                if (!this.ctx) {
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    if (AC) this.ctx = new AC();
+                }
+                return this.ctx;
+            }
+            playLick() {
+                const ctx = this.getContext();
+                if (!ctx) return;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(400, ctx.currentTime);
+                osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
+                osc.connect(gain); gain.connect(ctx.destination);
+                osc.start(); osc.stop(ctx.currentTime + 0.1);
+            }
+            playHit(type) {
+                const ctx = this.getContext();
+                if (!ctx) return;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                if (type === 'BOMB') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(100, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + 0.5);
+                    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+                } else if (type === 'WIN') {
+                    const now = ctx.currentTime;
+                    [523, 659, 783, 1046, 783, 1046].forEach((freq, i) => {
+                        const o = ctx.createOscillator();
+                        const g = ctx.createGain();
+                        o.type = 'square';
+                        o.frequency.value = freq;
+                        g.gain.value = 0.1;
+                        g.gain.exponentialRampToValueAtTime(0.01, now + i*0.15 + 0.1);
+                        o.connect(g); g.connect(ctx.destination);
+                        o.start(now + i*0.15); o.stop(now + i*0.15 + 0.2);
+                    });
+                } else {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(800, ctx.currentTime);
+                    osc.frequency.setValueAtTime(1200, ctx.currentTime + 0.1);
+                    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
+                    osc.connect(gain); gain.connect(ctx.destination);
+                    osc.start(); osc.stop(ctx.currentTime + 0.1);
+                }
+            }
+        }
+        const audio = new AudioEngine();
+
+        // ==========================================
+        // 4. MAIN GAME COMPONENT
+        // ==========================================
+        const App = () => {
+            const canvasRef = useRef(null);
+            const requestRef = useRef();
+            const previousTimeRef = useRef();
+            
+            // Using Refs for game data to avoid stale closures in the loop
+            const collectedCountRef = useRef(0);
+            
+            const [gameState, setGameState] = useState('START'); 
+
+            const yoshi = useRef({ x: SCREEN_WIDTH / 2 - 8, y: SCREEN_HEIGHT - 38, w: 16, h: 16 });
+            const tongue = useRef({ state: 'IDLE', x: 0, y: 0, targetX: 0, targetY: 0, length: 0 });
+            const items = useRef([]); 
+            const spawnTimer = useRef(0);
+            
+            // --- Helpers ---
+            const getCanvasCoordinates = (e) => {
+                const canvas = canvasRef.current;
+                if (!canvas) return { x: 0, y: 0 };
+                
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = SCREEN_WIDTH / rect.width;
+                const scaleY = SCREEN_HEIGHT / rect.height;
+                
+                let clientX, clientY;
+                if (e.touches && e.touches.length > 0) {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+                
+                return {
+                    x: (clientX - rect.left) * scaleX,
+                    y: (clientY - rect.top) * scaleY
+                };
+            };
+
+            const resetGame = () => {
+                collectedCountRef.current = 0;
+                items.current = [];
+                tongue.current = { state: 'IDLE', x: 0, y: 0, targetX: 0, targetY: 0, length: 0 };
+                setGameState('PLAYING');
+            };
+
+            const spawnItem = () => {
+                const types = ['APPLE', 'APPLE', 'MELON', 'MELON', 'GIFT', 'BOMB'];
+                const type = types[Math.floor(Math.random() * types.length)];
+                let speed = 50;
+                if (type === 'GIFT') speed = 70;
+                if (type === 'BOMB') speed = 90;
+
+                const baseW = type === 'GIFT' ? 12 : 8;
+                const baseH = type === 'GIFT' ? 12 : 8;
+
+                items.current.push({
+                    x: Math.random() * (SCREEN_WIDTH - 40) + 20,
+                    y: -30,
+                    w: baseW * ITEM_SCALE,
+                    h: baseH * ITEM_SCALE,
+                    type: type,
+                    speed: speed + Math.random() * 20,
+                    active: true,
+                    caught: false
+                });
+            };
+
+            // --- Update Loop ---
+            const update = (dt) => {
+                if (collectedCountRef.current >= TARGET_COUNT) {
+                    audio.playHit('WIN');
+                    setGameState('WIN');
+                    return;
+                }
+
+                spawnTimer.current += dt;
+                if (spawnTimer.current > 0.7) { 
+                    spawnItem();
+                    spawnTimer.current = 0;
+                }
+
+                const t = tongue.current;
+                const originX = yoshi.current.x + 8;
+                const originY = yoshi.current.y + 4; 
+
+                if (t.state === 'OUT') {
+                    const dx = t.targetX - originX;
+                    const dy = t.targetY - originY;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    t.length += TONGUE_SPEED * dt;
+                    
+                    if (t.length >= dist) {
+                        t.length = dist;
+                        t.state = 'IN'; 
+                    }
+                    
+                    const angle = Math.atan2(dy, dx);
+                    t.x = originX + Math.cos(angle) * t.length;
+                    t.y = originY + Math.sin(angle) * t.length;
+
+                } else if (t.state === 'IN') {
+                    t.length -= TONGUE_SPEED * dt;
+                    if (t.length <= 0) {
+                        t.length = 0;
+                        t.state = 'IDLE';
+                        // Clean up caught items and update score
+                        let newPoints = 0;
+                        items.current.forEach(i => {
+                             if (i.caught && i.type !== 'BOMB') {
+                                 newPoints++;
+                             }
+                        });
+                        if (newPoints > 0) {
+                            collectedCountRef.current += newPoints;
+                        }
+                        items.current = items.current.filter(i => !i.caught);
+                    } else {
+                        const dx = t.targetX - originX;
+                        const dy = t.targetY - originY;
+                        const angle = Math.atan2(dy, dx);
+                        t.x = originX + Math.cos(angle) * t.length;
+                        t.y = originY + Math.sin(angle) * t.length;
+                        
+                        items.current.forEach(i => {
+                            if (i.caught) {
+                                i.x = t.x - i.w/2;
+                                i.y = t.y - i.h/2;
+                            }
+                        });
+                    }
+                }
+
+                // Collision Detection
+                items.current.forEach(item => {
+                    if (!item.caught) {
+                        item.y += item.speed * dt;
+                    }
+                    
+                    if (item.y > SCREEN_HEIGHT) item.active = false;
+
+                    // Improved Collision: Distance based check with generous buffer
+                    if (item.active && !item.caught && t.state === 'OUT') {
+                        const itemCX = item.x + item.w / 2;
+                        const itemCY = item.y + item.h / 2;
+                        
+                        // Simple box overlap but wider (Hitbox Buffer)
+                        const buffer = 12; // Extra pixels for forgiveness
+                        const hitX = Math.abs(t.x - itemCX) < (item.w / 2 + buffer);
+                        const hitY = Math.abs(t.y - itemCY) < (item.h / 2 + buffer);
+
+                        if (hitX && hitY) {
+                            if (item.type === 'BOMB') {
+                                audio.playHit('BOMB');
+                                setGameState('GAMEOVER');
+                            } else {
+                                item.caught = true;
+                                t.state = 'IN'; 
+                                audio.playHit('GOOD');
+                            }
+                        }
+                    }
+                });
+
+                items.current = items.current.filter(i => i.active);
+            };
+
+            // --- Input Handler ---
+            const handleInput = useCallback((e) => {
+                if (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'WIN') {
+                    if ((gameState === 'GAMEOVER' || gameState === 'WIN') && Date.now() - lastStateTime.current < 1000) return;
+                    resetGame();
+                    return;
+                }
+
+                if (tongue.current.state === 'IDLE') {
+                    const coords = getCanvasCoordinates(e);
+                    
+                    tongue.current.state = 'OUT';
+                    tongue.current.targetX = coords.x;
+                    tongue.current.targetY = coords.y;
+                    audio.playLick();
+                }
+            }, [gameState]);
+
+            const lastStateTime = useRef(0);
+            useEffect(() => {
+                if (gameState !== 'PLAYING') lastStateTime.current = Date.now();
+            }, [gameState]);
+
+            // --- Draw ---
+            const drawSprite = (ctx, sprite, x, y, scale = 1) => {
+                if (!sprite || sprite.length === 0) return;
+                const h = sprite.length;
+                const w = sprite[0].length;
+                for (let row = 0; row < h; row++) {
+                    for (let col = 0; col < w; col++) {
+                        const char = sprite[row][col];
+                        const color = PAL[char];
+                        if (color) {
+                            ctx.fillStyle = color;
+                            ctx.fillRect(Math.floor(x + col * scale), Math.floor(y + row * scale), Math.ceil(scale), Math.ceil(scale));
+                        }
+                    }
+                }
+            };
+
+            const drawBackground = (ctx) => {
+                // 1. Sky
+                ctx.fillStyle = COLORS.SKY;
+                ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+                // 2. Stars (Simple yellow dots)
+                ctx.fillStyle = '#ffff99';
+                [
+                    {x: 20, y: 30}, {x: 80, y: 50}, {x: 150, y: 20}, 
+                    {x: 240, y: 40}, {x: 300, y: 15}, {x: 50, y: 80}
+                ].forEach(p => ctx.fillRect(p.x, p.y, 2, 2));
+
+                // 3. Rainbow
+                const cx = SCREEN_WIDTH * 0.8;
+                const cy = SCREEN_HEIGHT * 0.55;
+                const radius = 170;
+                const thickness = 6;
+                const colors = ['#ff6b6b', '#feca57', '#ffff99', '#55efc4', '#a29bfe'];
+                
+                ctx.save();
+                ctx.globalAlpha = 0.5;
+                colors.forEach((c, i) => {
+                    ctx.beginPath();
+                    ctx.arc(cx, cy + 100, radius - i * thickness, Math.PI, 1.8 * Math.PI);
+                    ctx.strokeStyle = c;
+                    ctx.lineWidth = thickness;
+                    ctx.stroke();
+                });
+                ctx.restore();
+
+                // 4. Distant Pastel Clouds (Pink/Purple layer at bottom)
+                ctx.fillStyle = COLORS.PASTEL_PURPLE; 
+                ctx.beginPath();
+                let baseY = 150;
+                ctx.moveTo(0, SCREEN_HEIGHT);
+                ctx.lineTo(0, baseY);
+                // Wavy cloud line
+                for (let i = 0; i <= SCREEN_WIDTH; i+=40) {
+                    ctx.quadraticCurveTo(i + 20, baseY - 20, i + 40, baseY);
+                }
+                ctx.lineTo(SCREEN_WIDTH, SCREEN_HEIGHT);
+                ctx.fill();
+
+                // Layer 2 (Pinker)
+                ctx.fillStyle = COLORS.PASTEL_PINK;
+                ctx.beginPath();
+                baseY = 170;
+                ctx.moveTo(0, SCREEN_HEIGHT);
+                ctx.lineTo(0, baseY);
+                for (let i = 0; i <= SCREEN_WIDTH; i+=50) {
+                    ctx.quadraticCurveTo(i + 25, baseY - 25, i + 50, baseY);
+                }
+                ctx.lineTo(SCREEN_WIDTH, SCREEN_HEIGHT);
+                ctx.fill();
+
+                // 5. Floating Castle (Distant)
+                drawSprite(ctx, CASTLE_SPRITE, 230, 50, 2);
+
+                // 6. Fluffy White Clouds
+                drawSprite(ctx, CLOUD_SPRITE, 30, 40, 2);
+                drawSprite(ctx, CLOUD_SPRITE, 140, 80, 2);
+                drawSprite(ctx, CLOUD_SPRITE, 260, 110, 2);
+
+                // 7. Ground (Checkerboard Dirt)
+                const groundY = SCREEN_HEIGHT - 32;
+                
+                // Base
+                ctx.fillStyle = COLORS.DIRT_LIGHT;
+                ctx.fillRect(0, groundY, SCREEN_WIDTH, 32);
+                
+                // Checkerboard
+                ctx.fillStyle = COLORS.DIRT_DARK;
+                const blockSize = 16;
+                for(let r=0; r<2; r++) { 
+                    for(let c=0; c<Math.ceil(SCREEN_WIDTH/blockSize); c++) {
+                        if ((r+c)%2 === 1) {
+                            ctx.fillRect(c*blockSize, groundY + r*blockSize, blockSize, blockSize);
+                        }
+                    }
+                }
+                
+                // Grass Top
+                ctx.fillStyle = COLORS.GRASS_TOP;
+                ctx.fillRect(0, groundY, SCREEN_WIDTH, 8);
+                
+                // Grass Decoration
+                ctx.fillStyle = COLORS.GRASS_SHADOW;
+                for(let i=0; i<SCREEN_WIDTH; i+=12) {
+                    ctx.fillRect(i, groundY, 4, 6);
+                }
+            };
+
+            const draw = () => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+
+                drawBackground(ctx);
+
+                const t = tongue.current;
+                const yPos = yoshi.current;
+                const originX = yPos.x + 8;
+                const originY = yPos.y + 4;
+
+                if (t.state !== 'IDLE') {
+                    ctx.strokeStyle = COLORS.TONGUE;
+                    ctx.lineWidth = 6; 
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(originX, originY);
+                    ctx.lineTo(t.x, t.y);
+                    ctx.stroke();
+                    
+                    ctx.fillStyle = COLORS.TONGUE;
+                    ctx.beginPath();
+                    ctx.arc(t.x, t.y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                drawSprite(ctx, YOSHI_IDLE, yPos.x, yPos.y);
+
+                items.current.forEach(item => {
+                    let sprite = APPLE_SPRITE;
+                    if (item.type === 'MELON') sprite = MELON_SPRITE;
+                    if (item.type === 'GIFT') sprite = GIFT_SPRITE;
+                    if (item.type === 'BOMB') sprite = BOMB_SPRITE;
+                    
+                    drawSprite(ctx, sprite, item.x, item.y, ITEM_SCALE);
+                });
+
+                // UI
+                ctx.fillStyle = COLORS.UI_BG;
+                ctx.beginPath();
+                ctx.roundRect(10, 10, 140, 30, 8);
+                ctx.fill();
+                
+                ctx.fillStyle = COLORS.TEXT;
+                ctx.font = 'bold 16px "Courier New"';
+                ctx.textAlign = 'left';
+                // Read directly from Ref to avoid stale state in loop
+                ctx.fillText(`COLLECTED: ${collectedCountRef.current}/${TARGET_COUNT}`, 20, 31);
+                
+                if (gameState !== 'PLAYING') {
+                    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+                    
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    
+                    if (gameState === 'START') {
+                        // Title with shadow
+                        ctx.shadowColor = "#333";
+                        ctx.shadowBlur = 0;
+                        ctx.shadowOffsetX = 2;
+                        ctx.shadowOffsetY = 2;
+                        
+                        ctx.fillStyle = '#feca57';
+                        ctx.font = 'bold 24px "Courier New"';
+                        ctx.fillText("YOSHI'S SKY JUMP", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 30);
+                        
+                        ctx.shadowColor = "transparent"; // Reset shadow
+
+                        ctx.fillStyle = '#55efc4';
+                        ctx.font = '12px "Courier New"';
+                        ctx.fillText("MISSION: Collect 10 items!", SCREEN_WIDTH/2, SCREEN_HEIGHT/2);
+                        ctx.fillStyle = '#fff';
+                        ctx.fillText("Tap anywhere to Lick", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20);
+                        ctx.fillStyle = '#ff6b6b';
+                        ctx.fillText("AVOID BOMBS!", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 40);
+                    } else if (gameState === 'GAMEOVER') {
+                        ctx.fillStyle = '#ff6b6b';
+                        ctx.font = 'bold 24px "Courier New"';
+                        ctx.fillText("GAME OVER", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10);
+                        ctx.fillStyle = '#fff';
+                        ctx.font = '16px "Courier New"';
+                        ctx.fillText(`You got: ${collectedCountRef.current}`, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 15);
+                        ctx.font = '12px "Courier New"';
+                        ctx.fillText("Tap to Retry", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 40);
+                    } else if (gameState === 'WIN') {
+                        ctx.fillStyle = '#feca57';
+                        ctx.font = 'bold 24px "Courier New"';
+                        ctx.fillText("VICTORY!", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10);
+                        ctx.fillStyle = '#fff';
+                        ctx.font = '16px "Courier New"';
+                        ctx.fillText("All items collected!", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 15);
+                        ctx.font = '12px "Courier New"';
+                        ctx.fillText("Tap to Play Again", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 40);
+                    }
+                }
+            };
+
+            const animate = (time) => {
+                if (previousTimeRef.current !== undefined && gameState === 'PLAYING') {
+                    const dt = Math.min((time - previousTimeRef.current) / 1000, 0.05);
+                    update(dt);
+                }
+                draw();
+                previousTimeRef.current = time;
+                requestRef.current = requestAnimationFrame(animate);
+            };
+
+            useEffect(() => {
+                requestRef.current = requestAnimationFrame(animate);
+                return () => cancelAnimationFrame(requestRef.current);
+            }, [gameState]);
+
+            return (
+                <canvas 
+                    ref={canvasRef} 
+                    width={SCREEN_WIDTH} 
+                    height={SCREEN_HEIGHT} 
+                    onPointerDown={handleInput}
+                />
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
