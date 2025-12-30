@@ -712,11 +712,22 @@
                 } else if (gameState === 'WIN') {
                     ctx.fillStyle = 'rgba(255,255,255,0.2)'; 
                     ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-                    ctx.fillStyle = '#d946ef'; ctx.textAlign = 'center';
-                    ctx.font = '20px "Courier New"'; ctx.fillText("MISSION COMPLETE!", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20);
+                    
+                    ctx.textAlign = 'center';
+                    
+                    // Japanese Greeting Line 1
+                    ctx.fillStyle = '#d946ef'; // Pink for Name
+                    ctx.font = 'bold 24px "Courier New"'; 
+                    ctx.fillText("アタン～", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 15);
+                    
+                    // Japanese Greeting Line 2
                     ctx.fillStyle = 'white';
-                    ctx.font = '12px "Courier New"'; ctx.fillText(`You collected all 5 coins!`, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 10);
-                    ctx.fillText(`Tap Jump (A) to Replay`, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 30);
+                    ctx.font = 'bold 18px "Courier New"'; 
+                    ctx.fillText("お誕生日おめでとう", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 15);
+                    
+                    // Instructions
+                    ctx.font = '12px "Courier New"'; 
+                    ctx.fillText(`Tap Jump (A) to Replay`, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 45);
                 }
                 ctx.textAlign = 'left';
             };
