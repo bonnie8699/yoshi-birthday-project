@@ -628,14 +628,24 @@
                         ctx.font = '12px "Courier New"';
                         ctx.fillText("Tap to Retry", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 40);
                     } else if (gameState === 'WIN') {
-                        ctx.fillStyle = '#feca57';
+                        ctx.shadowColor = "rgba(0,0,0,0.5)";
+                        ctx.shadowBlur = 0;
+                        ctx.shadowOffsetX = 2;
+                        ctx.shadowOffsetY = 2;
+
+                        ctx.fillStyle = '#d946ef'; 
                         ctx.font = 'bold 24px "Courier New"';
-                        ctx.fillText("VICTORY!", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10);
+                        ctx.fillText("アタン～", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 15);
+                        
+                        ctx.fillStyle = '#ffffff'; 
+                        ctx.font = 'bold 24px "Courier New"';
+                        ctx.fillText("超すごい～！", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 15);
+                        
+                        ctx.shadowColor = "transparent"; 
+
                         ctx.fillStyle = '#fff';
-                        ctx.font = '16px "Courier New"';
-                        ctx.fillText("All items collected!", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 15);
                         ctx.font = '12px "Courier New"';
-                        ctx.fillText("Tap to Play Again", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 40);
+                        ctx.fillText("Tap to Play Again", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 45);
                     }
                 }
             };
