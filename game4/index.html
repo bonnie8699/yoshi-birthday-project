@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>Yoshi's Egg Defense</title>
+    <title>Yoshi's Egg Defense: Volcano Edition</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -22,7 +22,7 @@
         margin: 0;
         padding: 0;
         overflow: hidden;
-        background-color: #111;
+        background-color: #000;
         touch-action: none;
         user-select: none;
         -webkit-user-select: none;
@@ -35,16 +35,16 @@
           justify-content: center;
           align-items: center;
       }
-      .font-retro { font-family: 'Courier New', Courier, monospace; }
       
       canvas {
-          background-color: #87CEEB; /* Sky Blue */
+          background-color: #2d1010;
           image-rendering: pixelated;
-          width: min(100vw, 133.33vh);
-          height: min(100vh, 75vw);
-          box-shadow: 0 0 20px rgba(0,0,0,0.5);
+          width: 100vw;
+          height: 100vh;
+          object-fit: contain;
       }
     </style>
+<link rel="stylesheet" href="/index.css">
 </head>
 <body>
     <div id="root"></div>
@@ -60,14 +60,16 @@
         const SCREEN_HEIGHT = 240;
         const YOSHI_SPEED = 160;
         const EGG_SPEED = 250;
-        const ENEMY_SPEED = 20;
+        const ENEMY_SPEED = 10; // Slightly slower for better feel
         const MAX_AMMO = 6;
         const RELOAD_ZONE_WIDTH = 25;
 
         const COLORS = {
-            SKY: '#63adff',
-            RELOAD_ZONE: 'rgba(0, 100, 255, 0.3)',
-            RELOAD_ZONE_ACTIVE: 'rgba(0, 100, 255, 0.6)',
+            SKY: '#2d1010', // Dark Volcanic Sky
+            LAVA: '#ff4d00',
+            LAVA_GLOW: '#ffcc00',
+            RELOAD_ZONE: 'rgba(0, 150, 255, 0.2)',
+            RELOAD_ZONE_ACTIVE: 'rgba(0, 200, 255, 0.5)',
             TEXT: '#ffffff',
         };
 
@@ -80,15 +82,17 @@
             O: '#f97316', // Orange
             Y: '#eab308', // Yellow
             B: '#3b82f6', // Blue
-            S: '#78350f', // Shoe Brown
-            F: '#fca5a5', // Face/Skin
+            S: '#4a3728', // Rock Brown
+            F: '#fca5a5', // Face
+            L: '#ff4d00', // Lava
+            V: '#1a0d0d', // Deep Volcano Shadow
+            C: '#d946ef', // Magic Pink
         };
 
         // ==========================================
         // 2. ASSETS
         // ==========================================
         
-        // 16x16 Yoshi
         const YOSHI_SPRITE = [
             "____GGGGG_______",
             "___GWWWWG_______",
@@ -108,7 +112,6 @@
             "__OO_OO_________",
         ];
 
-        // 16x16 Shy Guy
         const SHYGUY_SPRITE = [
             "______RRRR______",
             "_____RRRRRR_____",
@@ -126,7 +129,6 @@
             "___SSS____SSS___",
         ];
 
-        // 8x8 Egg
         const EGG_SPRITE = [
             "__WWWW__",
             "_WWWWWW_",
@@ -136,6 +138,19 @@
             "WWWWWWWW",
             "_WWWWWW_",
             "__WWWW__",
+        ];
+
+        const VOLCANO_SPRITE = [
+            "_________LL_________ ",
+            "________LLLL________",
+            "_______LLLLLL_______",
+            "______LLLLLLLL______",
+            "_____VVVVVVVVVV_____",
+            "____VVVVVVVVVVVV____",
+            "___VVVVVVVVVVVVVV___",
+            "__VVVVVVVVVVVVVVVV__",
+            "_VVVVVVVVVVVVVVVVVV_",
+            "VVVVVVVVVVVVVVVVVVVV"
         ];
 
         // ==========================================
@@ -220,63 +235,23 @@
         const audio = new AudioEngine();
 
         // ==========================================
-        // 4. INPUT & CONTROLS
+        // 4. COMPONENTS
         // ==========================================
-        const useInput = () => {
-            const [input, setInput] = useState({ left: false, right: false, fire: false });
-            
-            useEffect(() => {
-                const handleKey = (e, isDown) => {
-                    switch(e.key) {
-                        case 'ArrowLeft': case 'a': setInput(p => ({...p, left: isDown})); break;
-                        case 'ArrowRight': case 'd': setInput(p => ({...p, right: isDown})); break;
-                        case ' ': case 'z': case 'Enter': setInput(p => ({...p, fire: isDown})); break;
-                    }
-                };
-                window.addEventListener('keydown', e => handleKey(e, true));
-                window.addEventListener('keyup', e => handleKey(e, false));
-                return () => {
-                    window.removeEventListener('keydown', e => handleKey(e, true));
-                    window.removeEventListener('keyup', e => handleKey(e, false));
-                };
-            }, []);
-            return input;
-        };
-
-        const VirtualPad = ({ onInput }) => {
-            const handleTouch = (key, active) => {
-                onInput(prev => ({ ...prev, [key]: active }));
-            };
-            
-            const btnClass = "w-16 h-16 rounded-full bg-gray-700/50 border-2 border-white/30 flex items-center justify-center active:bg-gray-500/50 select-none touch-none";
-
+        const VirtualPad = ({ setInput }) => {
+            const handleTouch = (key, active) => { setInput(key, active); };
+            const btnClass = "w-16 h-16 rounded-full bg-gray-700/50 border-2 border-white/30 flex items-center justify-center active:bg-gray-500/70 select-none touch-none";
             return (
                 <div className="absolute bottom-4 w-full px-8 flex justify-between pointer-events-none z-50">
                     <div className="flex gap-4 pointer-events-auto">
-                        <div className={btnClass} 
-                             onTouchStart={(e)=>{e.preventDefault(); handleTouch('left', true)}} 
-                             onTouchEnd={(e)=>{e.preventDefault(); handleTouch('left', false)}}
-                             onMouseDown={(e)=>{e.preventDefault(); handleTouch('left', true)}} 
-                             onMouseUp={(e)=>{e.preventDefault(); handleTouch('left', false)}}
-                        >
+                        <div className={btnClass} onPointerDown={()=>handleTouch('left', true)} onPointerUp={()=>handleTouch('left', false)} onPointerLeave={()=>handleTouch('left', false)}>
                             <span className="text-white text-2xl">←</span>
                         </div>
-                        <div className={btnClass} 
-                             onTouchStart={(e)=>{e.preventDefault(); handleTouch('right', true)}} 
-                             onTouchEnd={(e)=>{e.preventDefault(); handleTouch('right', false)}}
-                             onMouseDown={(e)=>{e.preventDefault(); handleTouch('right', true)}} 
-                             onMouseUp={(e)=>{e.preventDefault(); handleTouch('right', false)}}
-                        >
+                        <div className={btnClass} onPointerDown={()=>handleTouch('right', true)} onPointerUp={()=>handleTouch('right', false)} onPointerLeave={()=>handleTouch('right', false)}>
                             <span className="text-white text-2xl">→</span>
                         </div>
                     </div>
                     <div className="pointer-events-auto">
-                        <div className={`${btnClass} bg-red-600/60 border-red-300`} 
-                             onTouchStart={(e)=>{e.preventDefault(); handleTouch('fire', true)}} 
-                             onTouchEnd={(e)=>{e.preventDefault(); handleTouch('fire', false)}}
-                             onMouseDown={(e)=>{e.preventDefault(); handleTouch('fire', true)}} 
-                             onMouseUp={(e)=>{e.preventDefault(); handleTouch('fire', false)}}
-                        >
+                        <div className={`${btnClass} bg-red-600/60 border-red-300`} onPointerDown={()=>handleTouch('fire', true)} onPointerUp={()=>handleTouch('fire', false)} onPointerLeave={()=>handleTouch('fire', false)}>
                             <span className="text-white font-bold">FIRE</span>
                         </div>
                     </div>
@@ -292,25 +267,48 @@
             const requestRef = useRef();
             const prevTimeRef = useRef();
             
-            // Game State
             const [gameState, setGameState] = useState('START');
-            const [virtualInput, setVirtualInput] = useState({ left: false, right: false, fire: false });
-            const kbInput = useInput();
-            
-            // Refs for game loop data
+            const inputRef = useRef({ left: false, right: false, fire: false });
+
             const yoshi = useRef({ x: SCREEN_WIDTH/2, y: SCREEN_HEIGHT - 32, w: 16, h: 16, ammo: MAX_AMMO, facingRight: true });
             const bullets = useRef([]);
             const enemies = useRef([]);
             const particles = useRef([]);
             const fireCooldown = useRef(0);
             const isReloading = useRef(false);
+            const restartDebounce = useRef(0);
+            const timeRef = useRef(0);
 
-            // Inputs
-            const getInput = () => ({
-                left: kbInput.left || virtualInput.left,
-                right: kbInput.right || virtualInput.right,
-                fire: kbInput.fire || virtualInput.fire,
-            });
+            // -- Input Handling --
+            useEffect(() => {
+                const handleKey = (e, isDown) => {
+                    if (gameState !== 'PLAYING' && isDown) { attemptRestart(); return; }
+                    if (e.repeat) return;
+                    switch(e.key) {
+                        case 'ArrowLeft': case 'a': inputRef.current.left = isDown; break;
+                        case 'ArrowRight': case 'd': inputRef.current.right = isDown; break;
+                        case ' ': case 'z': case 'Enter': inputRef.current.fire = isDown; break;
+                    }
+                };
+                window.addEventListener('keydown', e => handleKey(e, true));
+                window.addEventListener('keyup', e => handleKey(e, false));
+                return () => {
+                    window.removeEventListener('keydown', e => handleKey(e, true));
+                    window.removeEventListener('keyup', e => handleKey(e, false));
+                };
+            }, [gameState]);
+
+            const setVirtualInput = useCallback((key, active) => {
+                inputRef.current[key] = active;
+                if (gameState !== 'PLAYING' && active) attemptRestart();
+            }, [gameState]);
+
+            const attemptRestart = () => {
+                const now = Date.now();
+                if (now - restartDebounce.current > 300) {
+                    if (gameState !== 'PLAYING') { initGame(); restartDebounce.current = now; }
+                }
+            };
 
             const initGame = () => {
                 yoshi.current = { x: SCREEN_WIDTH/2 - 8, y: SCREEN_HEIGHT - 32, w: 16, h: 16, ammo: MAX_AMMO, facingRight: true };
@@ -319,8 +317,8 @@
                 isReloading.current = false;
                 fireCooldown.current = 0;
                 
-                // Spawn Grid of Shy Guys
-                const rows = 3;
+                // Spawning 2 rows of Shy Guys
+                const rows = 2;
                 const cols = 6;
                 const startX = 40;
                 const startY = 30;
@@ -345,35 +343,21 @@
 
             const spawnParticles = (x, y, color) => {
                 for(let i=0; i<5; i++) {
-                    particles.current.push({
-                        x, y, 
-                        vx: (Math.random() - 0.5) * 100, 
-                        vy: (Math.random() - 0.5) * 100,
-                        life: 0.5,
-                        color
-                    });
+                    particles.current.push({ x, y, vx: (Math.random() - 0.5) * 100, vy: (Math.random() - 0.5) * 100, life: 0.5, color });
                 }
             };
 
             const update = (dt) => {
-                const input = getInput();
+                const input = inputRef.current;
                 const player = yoshi.current;
+                timeRef.current += dt;
 
-                // 1. Player Movement
-                if (input.left) {
-                    player.x -= YOSHI_SPEED * dt;
-                    player.facingRight = false;
-                }
-                if (input.right) {
-                    player.x += YOSHI_SPEED * dt;
-                    player.facingRight = true;
-                }
+                if (input.left) { player.x -= YOSHI_SPEED * dt; player.facingRight = false; }
+                if (input.right) { player.x += YOSHI_SPEED * dt; player.facingRight = true; }
 
-                // Bounds
                 if (player.x < 0) player.x = 0;
                 if (player.x > SCREEN_WIDTH - player.w) player.x = SCREEN_WIDTH - player.w;
 
-                // 2. Reload Logic (Supply Zones)
                 const inLeftZone = player.x < RELOAD_ZONE_WIDTH;
                 const inRightZone = player.x > SCREEN_WIDTH - RELOAD_ZONE_WIDTH - player.w;
                 
@@ -383,65 +367,39 @@
                         isReloading.current = true;
                         audio.playReload();
                     }
-                } else {
-                    isReloading.current = false;
-                }
+                } else { isReloading.current = false; }
 
-                // 3. Shooting
                 if (fireCooldown.current > 0) fireCooldown.current -= dt;
                 
                 if (input.fire && fireCooldown.current <= 0) {
                     if (player.ammo > 0) {
-                        bullets.current.push({
-                            x: player.x + 4,
-                            y: player.y - 4,
-                            w: 8,
-                            h: 8,
-                            active: true
-                        });
+                        bullets.current.push({ x: player.x + 4, y: player.y - 4, w: 8, h: 8, active: true });
                         player.ammo--;
                         fireCooldown.current = 0.25;
                         audio.playShoot();
-                    } else {
-                        // Empty click sound
-                        fireCooldown.current = 0.2;
-                        audio.playEmpty();
-                    }
+                    } else { fireCooldown.current = 0.2; audio.playEmpty(); }
                 }
 
-                // 4. Update Bullets
                 bullets.current.forEach(b => {
                     b.y -= EGG_SPEED * dt;
                     if (b.y < -10) b.active = false;
                 });
 
-                // 5. Update Enemies
                 let activeEnemies = 0;
                 let hitPlayer = false;
                 
                 enemies.current.forEach(e => {
                     if (!e.active) return;
                     activeEnemies++;
-                    
-                    // Move Down
                     e.y += ENEMY_SPEED * dt;
-                    // Bobbing
                     e.bobOffset += dt * 5;
                     
-                    // Check Collision with Player or Bottom
-                    if (e.y + e.h > player.y + 4) { // Hit player level
-                        hitPlayer = true;
-                    }
+                    if (e.y + e.h > player.y + 4) hitPlayer = true;
                     
-                    // Check Collision with Bullets
                     bullets.current.forEach(b => {
-                        if (b.active && 
-                            b.x < e.x + e.w && b.x + b.w > e.x &&
-                            b.y < e.y + e.h && b.y + b.h > e.y) {
-                            
-                            b.active = false;
-                            e.active = false;
-                            spawnParticles(e.x + 8, e.y + 8, '#ef4444');
+                        if (b.active && b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y) {
+                            b.active = false; e.active = false;
+                            spawnParticles(e.x + 8, e.y + 8, '#ffcc00');
                             audio.playExplosion();
                         }
                     });
@@ -449,37 +407,22 @@
                 
                 bullets.current = bullets.current.filter(b => b.active);
 
-                // 6. Particles
                 particles.current.forEach(p => {
-                    p.x += p.vx * dt;
-                    p.y += p.vy * dt;
-                    p.life -= dt;
+                    p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
                 });
                 particles.current = particles.current.filter(p => p.life > 0);
 
-                // 7. Game Over / Win Checks
-                if (hitPlayer) {
-                    setGameState('GAMEOVER');
-                } else if (activeEnemies === 0) {
-                    setGameState('WIN');
-                    audio.playWin();
-                }
+                if (hitPlayer) setGameState('GAMEOVER');
+                else if (activeEnemies === 0) { setGameState('WIN'); audio.playWin(); }
             };
 
-            const drawSprite = (ctx, sprite, x, y, flipX=false) => {
+            const drawSprite = (ctx, sprite, x, y, flipX=false, scale=1) => {
                 const h = sprite.length;
                 const w = sprite[0].length;
                 ctx.save();
-                if (flipX) {
-                    ctx.translate(x + w, y);
-                    ctx.scale(-1, 1);
-                    ctx.translate(0, 0); 
-                    x = 0; // Relative to transform
-                } else {
-                    ctx.translate(x, y);
-                    x = 0;
-                }
-                
+                ctx.translate(x, y);
+                if (flipX) { ctx.scale(-1, 1); ctx.translate(-w * scale, 0); }
+                ctx.scale(scale, scale);
                 for(let r=0; r<h; r++) {
                     for(let c=0; c<w; c++) {
                         const char = sprite[r][c];
@@ -492,46 +435,67 @@
                 ctx.restore();
             };
 
+            const drawBackground = (ctx) => {
+                // Sky
+                const grad = ctx.createLinearGradient(0, 0, 0, SCREEN_HEIGHT);
+                grad.addColorStop(0, '#1a0505');
+                grad.addColorStop(0.5, '#4b150c');
+                grad.addColorStop(1, '#8b230f');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+                // Distant Volcanoes
+                drawSprite(ctx, VOLCANO_SPRITE, 40, 100, false, 4);
+                drawSprite(ctx, VOLCANO_SPRITE, 180, 110, true, 3);
+                
+                // Lava at the very bottom
+                const lavaPulse = Math.sin(timeRef.current * 3) * 5;
+                ctx.fillStyle = '#ff4d00';
+                ctx.fillRect(0, SCREEN_HEIGHT - 12 + lavaPulse, SCREEN_WIDTH, 12);
+                ctx.fillStyle = '#ffcc00';
+                ctx.fillRect(0, SCREEN_HEIGHT - 12 + lavaPulse, SCREEN_WIDTH, 2);
+
+                // Ground (Rocky Cliff)
+                ctx.fillStyle = '#2d1b11'; // Dark brown rock
+                ctx.fillRect(0, SCREEN_HEIGHT - 16, SCREEN_WIDTH, 16);
+                ctx.fillStyle = '#1a0d0d'; // Deep shadow
+                ctx.fillRect(0, SCREEN_HEIGHT - 16, SCREEN_WIDTH, 2);
+                
+                // Cracks in rock
+                ctx.fillStyle = '#4b150c';
+                for(let i=0; i<SCREEN_WIDTH; i+=20) {
+                    ctx.fillRect(i + (Math.sin(i)*5), SCREEN_HEIGHT - 14, 2, 8);
+                }
+            };
+
             const draw = () => {
                 const canvas = canvasRef.current;
                 if (!canvas) return;
                 const ctx = canvas.getContext('2d');
                 
-                // Clear
-                ctx.fillStyle = COLORS.SKY;
-                ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+                drawBackground(ctx);
 
-                // Draw Supply Zones
+                // Supply Zones (Glowing blue to contrast with fire)
                 ctx.fillStyle = isReloading.current ? COLORS.RELOAD_ZONE_ACTIVE : COLORS.RELOAD_ZONE;
                 ctx.fillRect(0, 0, RELOAD_ZONE_WIDTH, SCREEN_HEIGHT);
                 ctx.fillRect(SCREEN_WIDTH - RELOAD_ZONE_WIDTH, 0, RELOAD_ZONE_WIDTH, SCREEN_HEIGHT);
                 
-                // Supply Text labels
-                ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                ctx.fillStyle = 'rgba(255,255,255,0.7)';
                 ctx.font = '10px "Courier New"';
                 ctx.save();
                 ctx.translate(10, SCREEN_HEIGHT/2);
                 ctx.rotate(-Math.PI/2);
                 ctx.fillText("RELOAD", 0, 0);
                 ctx.restore();
-                
                 ctx.save();
                 ctx.translate(SCREEN_WIDTH - 5, SCREEN_HEIGHT/2);
                 ctx.rotate(Math.PI/2);
                 ctx.fillText("RELOAD", 0, 0);
                 ctx.restore();
 
-                // Draw Ground
-                ctx.fillStyle = '#166534'; // Dark Green
-                ctx.fillRect(0, SCREEN_HEIGHT - 16, SCREEN_WIDTH, 16);
-                ctx.fillStyle = '#22c55e'; // Light Green
-                ctx.fillRect(0, SCREEN_HEIGHT - 16, SCREEN_WIDTH, 4);
-
-                // Draw Player
                 const p = yoshi.current;
                 drawSprite(ctx, YOSHI_SPRITE, Math.floor(p.x), Math.floor(p.y), !p.facingRight);
 
-                // Draw Enemies
                 enemies.current.forEach(e => {
                     if (e.active) {
                         const bobY = Math.sin(e.bobOffset) * 2;
@@ -539,63 +503,57 @@
                     }
                 });
 
-                // Draw Bullets
                 bullets.current.forEach(b => {
                     drawSprite(ctx, EGG_SPRITE, Math.floor(b.x), Math.floor(b.y));
                 });
 
-                // Draw Particles
-                particles.current.forEach(p => {
-                    ctx.fillStyle = p.color;
-                    ctx.globalAlpha = p.life / 0.5;
-                    ctx.fillRect(p.x, p.y, 2, 2);
+                particles.current.forEach(pt => {
+                    ctx.fillStyle = pt.color;
+                    ctx.globalAlpha = pt.life / 0.5;
+                    ctx.fillRect(pt.x, pt.y, 2, 2);
                     ctx.globalAlpha = 1;
                 });
 
-                // UI: Ammo
-                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                // UI
+                ctx.fillStyle = 'rgba(0,0,0,0.6)';
                 ctx.fillRect(5, 5, 80, 20);
                 for(let i=0; i<MAX_AMMO; i++) {
-                    ctx.fillStyle = i < p.ammo ? '#ffffff' : '#555555';
-                    ctx.beginPath();
-                    ctx.arc(15 + i * 10, 15, 3, 0, Math.PI*2);
-                    ctx.fill();
+                    ctx.fillStyle = i < p.ammo ? '#ffffff' : '#444444';
+                    ctx.beginPath(); ctx.arc(15 + i * 10, 15, 3, 0, Math.PI*2); ctx.fill();
                 }
 
-                // Overlays
                 if (gameState !== 'PLAYING') {
-                    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                    ctx.fillStyle = 'rgba(0,0,0,0.8)';
                     ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
                     ctx.fillStyle = '#fff';
                     ctx.textAlign = 'center';
                     
                     if (gameState === 'START') {
                         ctx.font = 'bold 20px "Courier New"';
-                        ctx.fillStyle = '#4ade80';
-                        ctx.fillText("YOSHI'S EGG DEFENSE", SCREEN_WIDTH/2, 100);
+                        ctx.fillStyle = '#ff4d00';
+                        ctx.fillText("YOSHI'S VOLCANO DEFENSE", SCREEN_WIDTH/2, 100);
                         ctx.font = '12px "Courier New"';
                         ctx.fillStyle = '#fff';
                         ctx.fillText("Shoot the Shy Guys!", SCREEN_WIDTH/2, 130);
-                        ctx.fillText("Run to sides to RELOAD", SCREEN_WIDTH/2, 150);
-                        ctx.fillStyle = '#fbbf24';
-                        ctx.fillText("Press FIRE to Start", SCREEN_WIDTH/2, 180);
+                        ctx.fillText("Reload at the BLUE EDGES", SCREEN_WIDTH/2, 150);
+                        ctx.fillStyle = '#ffcc00';
+                        ctx.fillText("Tap anywhere to Start", SCREEN_WIDTH/2, 180);
                     } else if (gameState === 'GAMEOVER') {
                         ctx.font = 'bold 24px "Courier New"';
                         ctx.fillStyle = '#ef4444';
                         ctx.fillText("GAME OVER", SCREEN_WIDTH/2, 110);
                         ctx.font = '12px "Courier New"';
                         ctx.fillStyle = '#fff';
-                        ctx.fillText("Press FIRE to Retry", SCREEN_WIDTH/2, 140);
+                        ctx.fillText("Tap anywhere to Retry", SCREEN_WIDTH/2, 140);
                     } else if (gameState === 'WIN') {
                         ctx.font = 'bold 24px "Courier New"';
-                        ctx.fillStyle = '#d946ef'; // Pink
+                        ctx.fillStyle = '#d946ef';
                         ctx.fillText("アタン～", SCREEN_WIDTH/2, 100);
                         ctx.fillStyle = '#ffffff';
                         ctx.fillText("超すごい～！", SCREEN_WIDTH/2, 130);
-                        
                         ctx.font = '12px "Courier New"';
-                        ctx.fillStyle = '#fbbf24';
-                        ctx.fillText("Press FIRE to Play Again", SCREEN_WIDTH/2, 160);
+                        ctx.fillStyle = '#ffcc00';
+                        ctx.fillText("Tap anywhere to Play Again", SCREEN_WIDTH/2, 160);
                     }
                 }
             };
@@ -613,25 +571,12 @@
             useEffect(() => {
                 requestRef.current = requestAnimationFrame(loop);
                 return () => cancelAnimationFrame(requestRef.current);
-            }, [gameState]); // Re-bind if state changes (mostly for pause effect logic if needed)
-
-            // Start Input Handler
-            useEffect(() => {
-                const input = getInput();
-                if (input.fire && (gameState === 'START' || gameState === 'GAMEOVER' || gameState === 'WIN')) {
-                    // Simple debounce
-                    if (!isReloading.current) { // misuse variable for debounce flag briefly
-                         initGame();
-                         isReloading.current = true; // prevent double trigger
-                         setTimeout(() => isReloading.current = false, 500);
-                    }
-                }
-            }, [virtualInput, kbInput]);
+            }, [gameState]);
 
             return (
-                <div className="relative w-full h-full flex items-center justify-center">
+                <div className="relative w-full h-full flex items-center justify-center bg-black" onPointerDown={attemptRestart}>
                     <canvas ref={canvasRef} width={SCREEN_WIDTH} height={SCREEN_HEIGHT} />
-                    <VirtualPad onInput={setVirtualInput} />
+                    <VirtualPad setInput={setVirtualInput} />
                 </div>
             );
         };
@@ -639,5 +584,6 @@
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
+<script type="module" src="/index.tsx"></script>
 </body>
 </html>
