@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Yoshi's Deep Sea Dive</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM (UMD) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel Standalone -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #000;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+      }
+      #root { 
+          width: 100%; 
+          height: 100%; 
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          background-color: #000;
+      }
+      
+      canvas {
+          background-color: #001d3d;
+          image-rendering: pixelated;
+          /* Width and Height will be handled by JS for perfect aspect ratio */
+          box-shadow: 0 0 20px rgba(0,0,0,0.5);
+          cursor: crosshair;
+          touch-action: none; /* Critical for mobile */
+      }
+      
+      /* Shake animation for penalty */
+      @keyframes shake {
+        0% { transform: translate(1px, 1px) rotate(0deg); }
+        10% { transform: translate(-1px, -2px) rotate(-1deg); }
+        20% { transform: translate(-3px, 0px) rotate(1deg); }
+        30% { transform: translate(3px, 2px) rotate(0deg); }
+        40% { transform: translate(1px, -1px) rotate(1deg); }
+        50% { transform: translate(-1px, 2px) rotate(-1deg); }
+        60% { transform: translate(-3px, 1px) rotate(0deg); }
+        70% { transform: translate(3px, 1px) rotate(-1deg); }
+        80% { transform: translate(-1px, -1px) rotate(1deg); }
+        90% { transform: translate(1px, 2px) rotate(0deg); }
+        100% { transform: translate(1px, -2px) rotate(-1deg); }
+      }
+      .shake-canvas {
+          animation: shake 0.5s;
+          animation-iteration-count: 1;
+      }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- MAIN GAME SCRIPT -->
+    <script type="text/babel" data-presets="typescript,react">
+        const { useState, useEffect, useRef, useCallback, useLayoutEffect } = React;
+
+        // ==========================================
+        // 1. CONSTANTS & CONFIG
+        // ==========================================
+        const SCREEN_WIDTH = 320;
+        const SCREEN_HEIGHT = 240;
+        const GAME_DURATION = 45; // Seconds
+        
+        // Grid Config
+        const GRID_COLS = 3;
+        const GRID_ROWS = 3;
+        const PIPE_W = 32;
+        const PIPE_H = 32;
+        const SPACING_X = 80;
+        const SPACING_Y = 60;
+        const OFFSET_X = SCREEN_WIDTH / 2 - SPACING_X;
+        const OFFSET_Y = 85; 
+
+        // Character States
+        const STATE_HIDDEN = 0;
+        const STATE_RISING = 1;
+        const STATE_VISIBLE = 2;
+        const STATE_HIDING = 3;
+        const STATE_HIT = 4;
+
+        // Colors (Updated for Underwater Theme)
+        const PAL = {
+            _: null,
+            W: '#ffffff', // White
+            K: '#000000', // Black
+            G: '#4ade80', // Yoshi Green
+            DG: '#166534', // Dark Green
+            R: '#ef4444', // Red
+            DR: '#991b1b', // Dark Red
+            Y: '#facc15', // Yellow
+            O: '#f97316', // Orange
+            B: '#3b82f6', // Blue
+            S: '#78350f', // Brown
+            P: '#d946ef', // Pink
+            GR: '#9ca3af', // Grey
+            BR: '#451a03', // Dark Brown
+            
+            // Underwater Palette
+            AQ: '#67e8f9', // Aqua/Cyan (Glowing parts)
+            T:  '#2dd4bf', // Teal (Column base)
+            DT: '#0f766e', // Dark Teal (Shadows)
+            NV: '#1e3a8a', // Navy Blue (Deep accents)
+        };
+
+        // ==========================================
+        // 2. ASSETS (Sprites)
+        // ==========================================
+        
+        // 32x24 Ruin Column (Replaces Pipe)
+        const RUIN_SPRITE = [
+            "__DTDTDTDTDTDTDTDTDTDTDTDT__",
+            "_DTAQAQAQAQAQAQAQAQAQAQAQDT_",
+            "_DTTAQTAQTAQTAQTAQTAQTAQTTDT_",
+            "_DTTTTTTTTTTTTTTTTTTTTTTTTDT_",
+            "_DTDTDTDTDTDTDTDTDTDTDTDTDT_", 
+            "_DTAQAQAQAQAQAQAQAQAQAQAQDT_", 
+            "_DTAQAQAQAQAQAQAQAQAQAQAQDT_",
+            "_DTAQAQAQAQAQAQAQAQAQAQAQDT_",
+            "_DTTTTTTTTTTTTTTTTTTTTTTTTDT_",
+            "_DTTTTTTTTTTTTTTTTTTTTTTTTDT_",
+            "_DTDTDTDTDTDTDTDTDTDTDTDTDT_",
+            "_DTAQAQAQAQAQAQAQAQAQAQAQDT_",
+            "_DTAQAQAQAQAQAQAQAQAQAQAQDT_",
+            "_DTAQAQAQAQAQAQAQAQAQAQAQDT_",
+            "_DTTTTTTTTTTTTTTTTTTTTTTTTDT_",
+            "_DTTTTTTTTTTTTTTTTTTTTTTTTDT_"
+        ];
+
+        // 16x16 Characters
+        const SHYGUY_SPRITE = [
+            "______RRRR______",
+            "_____RRRRRR_____",
+            "____RRRRRRRR____",
+            "____RWWWWWWR____",
+            "____RWKWWWKR____",
+            "____RWKWWWKR____",
+            "____RWWWWWWR____",
+            "____RRRRRRRR____",
+            "_____RRRRRR_____",
+            "_____BBBBBB_____",
+            "____BBBBBBBB____",
+            "____BB____BB____",
+            "___SSS____SSS___",
+        ];
+
+        const COIN_SPRITE = [
+            "____YYYYYY____",
+            "___YYOYYOYY___",
+            "__YYOYYYYOYY__",
+            "__YOYYOOYYYY__",
+            "__YOYYOOYYYY__",
+            "__YYYYYYYYYY__",
+            "__YYOYYYYOYY__",
+            "__YYOYYYYOYY__",
+            "__YOYYYYYYOY__",
+            "___YYYYYYYY___",
+        ];
+
+        const YOSHI_HAT_SPRITE = [
+            "_______PP_______", 
+            "______PYYP______",
+            "_____PYYYYP_____",
+            "____PYYYYYYP____",
+            "____GGGGGGGG____", 
+            "___GWWWWGGGGG___",
+            "___GWWWWGGGGG___",
+            "__GWWWWGGGGGGG__",
+            "__GWWGGGGGGGGG__",
+            "__GWWGGGGGGGGG__",
+            "__GGGGGGGGGRR___",
+            "__GGGGGGGGGRR___",
+            "___GGGGGGGGG____",
+        ];
+
+        // Hammer Sprite
+        const HAMMER_SPRITE = [
+            "______GRGR______",
+            "____GRGRGRGR____",
+            "___GRGRGRGRGR___",
+            "___GRGRGRGRGR___",
+            "___GRGRGRGRGR___",
+            "____GRGRGRGR____",
+            "______GRGR______",
+            "_______BR_______",
+            "_______BR_______",
+            "_______BR_______",
+            "_______BR_______",
+            "_______BR_______",
+            "_______BR_______",
+            "_______BR_______",
+            "_______BR_______",
+            "_______BR_______",
+        ];
+
+        // Impact Star Sprite
+        const HIT_STAR_SPRITE = [
+            "________________",
+            "_____W___W______",
+            "___W_W_W_W_W____",
+            "____W__W__W_____",
+            "___WWWWWWWWW____",
+            "____W__W__W_____",
+            "___W_W_W_W_W____",
+            "_____W___W______",
+            "________________",
+        ];
+
+        // ==========================================
+        // 3. AUDIO ENGINE
+        // ==========================================
+        class AudioEngine {
+            constructor() { this.ctx = null; }
+            getContext() {
+                if (!this.ctx) {
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    if (AC) this.ctx = new AC();
+                }
+                return this.ctx;
+            }
+            playPop() {
+                const ctx = this.getContext();
+                if (!ctx) return;
+                const o = ctx.createOscillator();
+                const g = ctx.createGain();
+                o.type = 'triangle';
+                o.frequency.setValueAtTime(300, ctx.currentTime);
+                o.frequency.linearRampToValueAtTime(500, ctx.currentTime + 0.1);
+                g.gain.setValueAtTime(0.05, ctx.currentTime);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + 0.1);
+            }
+            playHit() {
+                const ctx = this.getContext();
+                if (!ctx) return;
+                const o = ctx.createOscillator();
+                const g = ctx.createGain();
+                o.type = 'square';
+                o.frequency.setValueAtTime(600, ctx.currentTime);
+                o.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1);
+                g.gain.setValueAtTime(0.1, ctx.currentTime);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + 0.1);
+            }
+            playCoin() {
+                const ctx = this.getContext();
+                if (!ctx) return;
+                const o = ctx.createOscillator();
+                const g = ctx.createGain();
+                o.type = 'sine';
+                o.frequency.setValueAtTime(1200, ctx.currentTime);
+                o.frequency.linearRampToValueAtTime(1600, ctx.currentTime + 0.1);
+                g.gain.setValueAtTime(0.1, ctx.currentTime);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + 0.2);
+            }
+            playPenalty() {
+                const ctx = this.getContext();
+                if (!ctx) return;
+                const o = ctx.createOscillator();
+                const g = ctx.createGain();
+                o.type = 'sawtooth';
+                o.frequency.setValueAtTime(100, ctx.currentTime);
+                o.frequency.linearRampToValueAtTime(50, ctx.currentTime + 0.3);
+                g.gain.setValueAtTime(0.2, ctx.currentTime);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + 0.3);
+            }
+            playGameFinish() {
+                const ctx = this.getContext();
+                if (!ctx) return;
+                [523, 659, 783, 1046, 1318].forEach((f, i) => {
+                    setTimeout(() => {
+                        const o = ctx.createOscillator();
+                        const g = ctx.createGain();
+                        o.type = 'square';
+                        o.frequency.value = f;
+                        g.gain.value = 0.1;
+                        g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
+                        o.connect(g); g.connect(ctx.destination);
+                        o.start(); o.stop(ctx.currentTime + 0.1);
+                    }, i * 100);
+                });
+            }
+        }
+        const audio = new AudioEngine();
+
+        // ==========================================
+        // 4. MAIN APP
+        // ==========================================
+        const App = () => {
+            const canvasRef = useRef(null);
+            const requestRef = useRef();
+            const prevTimeRef = useRef();
+            
+            const [gameState, setGameState] = useState('START');
+            const [score, setScore] = useState(0);
+            const [timeLeft, setTimeLeft] = useState(GAME_DURATION);
+            const [shake, setShake] = useState(false);
+            
+            // Screen Scaling State
+            const [canvasSize, setCanvasSize] = useState({ w: SCREEN_WIDTH, h: SCREEN_HEIGHT });
+
+            // Pipe Data Structure
+            const pipes = useRef(Array(GRID_ROWS * GRID_COLS).fill(null).map((_, i) => ({
+                id: i,
+                x: OFFSET_X + (i % GRID_COLS) * SPACING_X,
+                y: OFFSET_Y + Math.floor(i / GRID_COLS) * SPACING_Y,
+                state: STATE_HIDDEN,
+                type: 'SHYGUY',
+                animY: 0, 
+                timer: 0,
+                stayTime: 1.0,
+            })));
+
+            // Visual Effects
+            const hammers = useRef([]);
+            const hitEffects = useRef([]);
+            const bubbles = useRef([]); 
+
+            const spawnTimer = useRef(0);
+            const gameTimeRef = useRef(GAME_DURATION);
+
+            // Handle Resize to keep Aspect Ratio (Letterboxing)
+            useLayoutEffect(() => {
+                const handleResize = () => {
+                    const winW = window.innerWidth;
+                    const winH = window.innerHeight;
+                    const gameRatio = SCREEN_WIDTH / SCREEN_HEIGHT;
+                    const winRatio = winW / winH;
+
+                    let newW, newH;
+
+                    if (winRatio > gameRatio) {
+                        // Window is wider than game -> constrain by height
+                        newH = winH;
+                        newW = Math.floor(winH * gameRatio);
+                    } else {
+                        // Window is taller than game -> constrain by width
+                        newW = winW;
+                        newH = Math.floor(winW / gameRatio);
+                    }
+                    setCanvasSize({ w: newW, h: newH });
+                };
+
+                window.addEventListener('resize', handleResize);
+                handleResize(); // Initial calc
+                return () => window.removeEventListener('resize', handleResize);
+            }, []);
+
+            // -- Input Handling --
+            const handleCanvasClick = (e) => {
+                e.preventDefault(); // Prevent default touch actions like zoom/scroll
+
+                const canvas = canvasRef.current;
+                const rect = canvas.getBoundingClientRect();
+                
+                // Since we size the canvas to match aspect ratio, the scale is uniform
+                const scaleX = SCREEN_WIDTH / rect.width;
+                const scaleY = SCREEN_HEIGHT / rect.height;
+                
+                // Use clientX/Y from the pointer event
+                const clickX = (e.clientX - rect.left) * scaleX;
+                const clickY = (e.clientY - rect.top) * scaleY;
+
+                // Hit padding for buttons (generous 20px padding)
+                const PADDING = 20;
+
+                if (gameState === 'START') {
+                    // Start Button: Center X, Y=160, 100x40
+                    const btnX = SCREEN_WIDTH/2 - 50;
+                    const btnY = 160;
+                    const btnW = 100;
+                    const btnH = 40;
+
+                    if (clickX >= btnX - PADDING && clickX <= btnX + btnW + PADDING &&
+                        clickY >= btnY - PADDING && clickY <= btnY + btnH + PADDING) {
+                        initGame();
+                    }
+                    return;
+                }
+
+                if (gameState === 'GAMEOVER') {
+                    // Retry Button: Center X, Y=150, 100x40
+                    const btnX = SCREEN_WIDTH/2 - 50;
+                    const btnY = 150;
+                    const btnW = 100;
+                    const btnH = 40;
+
+                    if (clickX >= btnX - PADDING && clickX <= btnX + btnW + PADDING &&
+                        clickY >= btnY - PADDING && clickY <= btnY + btnH + PADDING) {
+                        initGame();
+                    }
+                    return;
+                }
+
+                if (gameState !== 'PLAYING') return;
+
+                // Spawn Hammer Animation
+                hammers.current.push({
+                    x: clickX,
+                    y: clickY,
+                    life: 0.15, 
+                    maxLife: 0.15
+                });
+
+                // Spawn a bubble burst on click too for effect
+                for(let i=0; i<3; i++) {
+                    bubbles.current.push({
+                        x: clickX + (Math.random() * 10 - 5),
+                        y: clickY,
+                        speed: 20 + Math.random() * 30,
+                        size: 1 + Math.random() * 2,
+                        wobble: Math.random() * Math.PI * 2
+                    });
+                }
+
+                // Check collisions
+                // Collision box is slightly generous too
+                pipes.current.forEach(p => {
+                    if (p.state === STATE_RISING || p.state === STATE_VISIBLE) {
+                        const hitX = p.x - 40; 
+                        const hitW = 80;
+                        const hitY = p.y - 80; 
+                        const hitH = 90;
+
+                        if (clickX >= hitX && clickX <= hitX + hitW &&
+                            clickY >= hitY && clickY <= hitY + hitH) {
+                            
+                            handleHit(p);
+                        }
+                    }
+                });
+            };
+
+            const handleHit = (pipe) => {
+                if (pipe.state === STATE_HIT) return; 
+
+                pipe.state = STATE_HIT;
+                pipe.timer = 0.2; 
+
+                hitEffects.current.push({
+                    x: pipe.x - 16, 
+                    y: pipe.y - 40,
+                    life: 0.3,
+                    maxLife: 0.3
+                });
+
+                if (pipe.type === 'SHYGUY') {
+                    setScore(s => s + 10);
+                    audio.playHit();
+                } else if (pipe.type === 'COIN') {
+                    setScore(s => s + 30);
+                    audio.playCoin();
+                } else if (pipe.type === 'YOSHI') {
+                    setScore(s => Math.max(0, s - 50));
+                    audio.playPenalty();
+                    setShake(true);
+                    setTimeout(() => setShake(false), 500);
+                }
+            };
+
+            const initGame = () => {
+                setScore(0);
+                setTimeLeft(GAME_DURATION);
+                gameTimeRef.current = GAME_DURATION;
+                setGameState('PLAYING');
+                spawnTimer.current = 0;
+                hammers.current = [];
+                hitEffects.current = [];
+                bubbles.current = [];
+                
+                pipes.current.forEach(p => {
+                    p.state = STATE_HIDDEN;
+                    p.animY = 0;
+                    p.timer = 0;
+                });
+            };
+
+            const getSpawnRate = (currentScore) => {
+                return Math.max(0.4, 1.0 - (currentScore / 500)); 
+            };
+            
+            const getStayTime = (currentScore) => {
+                return Math.max(0.6, 1.5 - (currentScore / 500));
+            };
+
+            const update = (dt) => {
+                // 1. Game Timer
+                gameTimeRef.current -= dt;
+                setTimeLeft(Math.ceil(gameTimeRef.current));
+                
+                if (gameTimeRef.current <= 0) {
+                    setGameState('GAMEOVER');
+                    audio.playGameFinish();
+                    return;
+                }
+
+                // 2. Spawner
+                spawnTimer.current -= dt;
+                if (spawnTimer.current <= 0) {
+                    const hiddenPipes = pipes.current.filter(p => p.state === STATE_HIDDEN);
+                    if (hiddenPipes.length > 0) {
+                        const target = hiddenPipes[Math.floor(Math.random() * hiddenPipes.length)];
+                        target.state = STATE_RISING;
+                        target.animY = 0;
+                        
+                        const r = Math.random();
+                        if (r < 0.2) target.type = 'COIN';
+                        else if (r < 0.4) target.type = 'YOSHI';
+                        else target.type = 'SHYGUY';
+
+                        target.stayTime = getStayTime(score);
+                        audio.playPop();
+                    }
+                    spawnTimer.current = getSpawnRate(score);
+                }
+
+                // 3. Update Pipes
+                pipes.current.forEach(p => {
+                    const RISE_SPEED = 80;
+                    switch (p.state) {
+                        case STATE_RISING:
+                            p.animY += RISE_SPEED * dt;
+                            if (p.animY >= 20) {
+                                p.animY = 20;
+                                p.state = STATE_VISIBLE;
+                                p.timer = p.stayTime;
+                            }
+                            break;
+                        case STATE_VISIBLE:
+                            p.timer -= dt;
+                            if (p.timer <= 0) p.state = STATE_HIDING;
+                            break;
+                        case STATE_HIDING:
+                            p.animY -= RISE_SPEED * dt;
+                            if (p.animY <= 0) {
+                                p.animY = 0;
+                                p.state = STATE_HIDDEN;
+                            }
+                            break;
+                        case STATE_HIT:
+                            p.timer -= dt;
+                            if (p.timer <= 0) p.state = STATE_HIDING;
+                            break;
+                    }
+                });
+
+                // 4. Update Visuals
+                hammers.current.forEach(h => h.life -= dt);
+                hammers.current = hammers.current.filter(h => h.life > 0);
+
+                hitEffects.current.forEach(h => h.life -= dt);
+                hitEffects.current = hitEffects.current.filter(h => h.life > 0);
+
+                // Update Bubbles (Spawn random ambient bubbles)
+                if (Math.random() < 0.05) {
+                    bubbles.current.push({
+                        x: Math.random() * SCREEN_WIDTH,
+                        y: SCREEN_HEIGHT + 10,
+                        speed: 10 + Math.random() * 20,
+                        size: 1 + Math.random() * 2,
+                        wobble: Math.random() * Math.PI * 2
+                    });
+                }
+                bubbles.current.forEach(b => {
+                    b.y -= b.speed * dt;
+                    b.wobble += dt * 2;
+                });
+                bubbles.current = bubbles.current.filter(b => b.y > -10);
+            };
+
+            const drawSprite = (ctx, sprite, x, y, scale=2, rotation=0, pivotX=0, pivotY=0) => {
+                const h = sprite.length;
+                const w = sprite[0].length;
+                
+                ctx.save();
+                ctx.translate(x, y);
+                if (rotation !== 0) {
+                    ctx.rotate(rotation);
+                    ctx.translate(-pivotX * scale, -pivotY * scale);
+                }
+
+                for(let r=0; r<h; r++) {
+                    for(let c=0; c<w; c++) {
+                        const char = sprite[r][c];
+                        if (PAL[char]) {
+                            ctx.fillStyle = PAL[char];
+                            ctx.fillRect(c*scale, r*scale, scale, scale);
+                        }
+                    }
+                }
+                ctx.restore();
+            };
+
+            const draw = () => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+
+                // Clear with Deep Sea Gradient
+                const grad = ctx.createLinearGradient(0, 0, 0, SCREEN_HEIGHT);
+                grad.addColorStop(0, '#001d3d'); 
+                grad.addColorStop(0, '#004e92'); 
+                grad.addColorStop(1, '#000428');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+                
+                // Draw Light Rays
+                ctx.save();
+                ctx.globalCompositeOperation = 'overlay';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(100, SCREEN_HEIGHT);
+                ctx.lineTo(150, SCREEN_HEIGHT);
+                ctx.lineTo(50, 0);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(200, 0);
+                ctx.lineTo(250, SCREEN_HEIGHT);
+                ctx.lineTo(320, SCREEN_HEIGHT);
+                ctx.lineTo(280, 0);
+                ctx.fill();
+                ctx.restore();
+
+                // Draw Bubbles
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 1;
+                bubbles.current.forEach(b => {
+                    ctx.beginPath();
+                    const wobbleX = Math.sin(b.wobble) * 2;
+                    ctx.arc(b.x + wobbleX, b.y, b.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                });
+
+                // Draw Seaweed (Simple deco)
+                ctx.fillStyle = '#0f766e'; // Dark Teal Seaweed
+                for(let i=0; i<10; i++) {
+                     let h = 20 + i * 5;
+                     let x = i * 35 + 10;
+                     ctx.beginPath();
+                     ctx.moveTo(x, SCREEN_HEIGHT);
+                     ctx.quadraticCurveTo(x + 5, SCREEN_HEIGHT - h/2, x - 5, SCREEN_HEIGHT - h);
+                     ctx.lineTo(x + 5, SCREEN_HEIGHT);
+                     ctx.fill();
+                }
+
+
+                // Draw Pipes (Ruin Columns) and Characters
+                pipes.current.forEach(p => {
+                    const px = Math.floor(p.x);
+                    const py = Math.floor(p.y);
+                    
+                    if (p.state !== STATE_HIDDEN) {
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.rect(px - 16, py - 60, 64, 60);
+                        ctx.clip();
+
+                        let sprite = SHYGUY_SPRITE;
+                        if (p.type === 'COIN') sprite = COIN_SPRITE;
+                        if (p.type === 'YOSHI') sprite = YOSHI_HAT_SPRITE;
+
+                        let hitOffset = 0;
+                        if (p.state === STATE_HIT) hitOffset = 5;
+
+                        drawSprite(ctx, sprite, px - 16, py - p.animY * 2 + hitOffset, 2);
+                        
+                        ctx.restore();
+                    }
+
+                    // Draw Ruin Column Front (Replaces Pipe)
+                    drawSprite(ctx, RUIN_SPRITE, px - 32, py, 2);
+                });
+
+                // Draw Hit Effects
+                hitEffects.current.forEach(e => {
+                     // Pulse opacity
+                     ctx.globalAlpha = e.life / e.maxLife;
+                     drawSprite(ctx, HIT_STAR_SPRITE, e.x, e.y, 2);
+                     ctx.globalAlpha = 1.0;
+                });
+
+                // Draw Hammers
+                hammers.current.forEach(h => {
+                    const progress = 1 - (h.life / h.maxLife); 
+                    const rotation = -Math.PI/4 + (progress * Math.PI/2);
+                    drawSprite(ctx, HAMMER_SPRITE, h.x - 8, h.y + 24, 2, rotation - 0.5, 8, 14);
+                });
+
+                // UI
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(0, 0, SCREEN_WIDTH, 30);
+                
+                ctx.fillStyle = '#67e8f9'; // Aqua Text for UI
+                ctx.font = 'bold 12px "Courier New"';
+                ctx.textAlign = 'left';
+                ctx.fillText(`SCORE: ${score}`, 10, 20);
+                
+                ctx.textAlign = 'right';
+                ctx.fillStyle = timeLeft < 10 ? '#ef4444' : '#67e8f9';
+                ctx.fillText(`TIME: ${timeLeft}`, SCREEN_WIDTH - 10, 20);
+
+                // Overlays
+                if (gameState !== 'PLAYING') {
+                    ctx.fillStyle = 'rgba(0,29,61,0.85)'; // Deep blue overlay
+                    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+                    ctx.textAlign = 'center';
+                    
+                    if (gameState === 'START') {
+                        ctx.fillStyle = PAL.Y;
+                        ctx.font = 'bold 20px "Courier New"';
+                        ctx.fillText("YOSHI'S DEEP DIVE", SCREEN_WIDTH/2, 90);
+                        ctx.fillStyle = '#fff';
+                        ctx.font = '12px "Courier New"';
+                        ctx.fillText("Tap Enemies & Coins!", SCREEN_WIDTH/2, 120);
+                        ctx.fillStyle = PAL.R;
+                        ctx.fillText("DON'T tap Birthday Yoshi!", SCREEN_WIDTH/2, 140);
+                        
+                        // START BUTTON
+                        const btnX = SCREEN_WIDTH/2 - 50;
+                        const btnY = 160;
+                        
+                        ctx.fillStyle = PAL.G;
+                        ctx.fillRect(btnX, btnY, 100, 40);
+                        ctx.strokeStyle = PAL.W;
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(btnX, btnY, 100, 40);
+                        
+                        ctx.fillStyle = PAL.K;
+                        ctx.font = 'bold 16px "Courier New"';
+                        ctx.fillText("START", SCREEN_WIDTH/2, btnY + 25);
+                        
+                    } else if (gameState === 'GAMEOVER') {
+                        ctx.fillStyle = PAL.W;
+                        ctx.font = 'bold 20px "Courier New"';
+                        ctx.fillText("TIME'S UP!", SCREEN_WIDTH/2, 80);
+                        ctx.font = '14px "Courier New"';
+                        ctx.fillText(`FINAL SCORE: ${score}`, SCREEN_WIDTH/2, 110);
+                        
+                        let rank = 'C (Beginner)';
+                        let color = '#fff';
+                        if (score >= 400) { rank = 'S (POSEIDON)'; color = PAL.P; }
+                        else if (score >= 300) { rank = 'A (Shark)'; color = PAL.Y; }
+                        else if (score >= 150) { rank = 'B (Diver)'; color = PAL.G; }
+                        
+                        ctx.fillStyle = color;
+                        ctx.fillText(`RANK: ${rank}`, SCREEN_WIDTH/2, 130);
+                        
+                        // RETRY BUTTON
+                        const btnX = SCREEN_WIDTH/2 - 50;
+                        const btnY = 150;
+                        
+                        ctx.fillStyle = PAL.G;
+                        ctx.fillRect(btnX, btnY, 100, 40);
+                        ctx.strokeStyle = PAL.W;
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(btnX, btnY, 100, 40);
+                        
+                        ctx.fillStyle = PAL.K;
+                        ctx.font = 'bold 16px "Courier New"';
+                        ctx.fillText("RETRY", SCREEN_WIDTH/2, btnY + 25);
+                    }
+                }
+            };
+
+            const loop = (time) => {
+                if (prevTimeRef.current !== undefined) {
+                    const dt = Math.min((time - prevTimeRef.current) / 1000, 0.05);
+                    if (gameState === 'PLAYING') update(dt);
+                    draw();
+                }
+                prevTimeRef.current = time;
+                requestRef.current = requestAnimationFrame(loop);
+            };
+
+            useEffect(() => {
+                requestRef.current = requestAnimationFrame(loop);
+                return () => cancelAnimationFrame(requestRef.current);
+            }, [gameState, score]);
+
+            return (
+                <div className={`relative w-full h-full flex items-center justify-center bg-black ${shake ? 'shake-canvas' : ''}`}>
+                    <canvas 
+                        ref={canvasRef} 
+                        width={SCREEN_WIDTH} 
+                        height={SCREEN_HEIGHT}
+                        style={{ width: canvasSize.w, height: canvasSize.h }}
+                        onPointerDown={handleCanvasClick}
+                    />
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
