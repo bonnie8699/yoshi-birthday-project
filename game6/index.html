@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Yoshi's Final Battle</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM (UMD) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel Standalone -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #1a0505; /* Fallback */
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        font-family: 'Courier New', Courier, monospace;
+      }
+      #root { 
+          width: 100%; 
+          height: 100%; 
+          position: relative;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          background-color: #111;
+      }
+      
+      canvas {
+          image-rendering: pixelated;
+          box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+          background-color: #231a38;
+      }
+
+      /* Virtual Controls - UPDATED SIZE */
+      .controls-layer {
+          position: absolute;
+          bottom: 10px;
+          left: 0;
+          width: 100%;
+          height: 160px; /* Increased height for larger buttons */
+          display: flex;
+          justify-content: space-between;
+          padding: 0 20px;
+          pointer-events: none;
+          z-index: 50;
+      }
+      
+      .btn {
+          background: rgba(255, 255, 255, 0.15);
+          border: 2px solid rgba(255, 255, 255, 0.4);
+          border-radius: 50%;
+          pointer-events: auto;
+          backdrop-filter: blur(2px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+          font-weight: bold;
+          font-size: 30px; /* Larger icon */
+          touch-action: none;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      }
+      .btn:active { 
+          background: rgba(255, 255, 255, 0.3); 
+          transform: scale(0.95); 
+          border-color: rgba(255, 255, 255, 0.8);
+      }
+
+      /* D-Pad Container wider to accommodate 90px buttons */
+      .d-pad { width: 220px; height: 100%; position: relative; }
+      
+      /* Larger Buttons: 90px */
+      .btn-left { position: absolute; bottom: 20px; left: 0; width: 90px; height: 90px; }
+      .btn-right { position: absolute; bottom: 20px; left: 110px; width: 90px; height: 90px; }
+      
+      .action-pad { width: 120px; height: 100%; position: relative; display: flex; align-items: flex-end; justify-content: flex-end; }
+      .btn-jump { width: 100px; height: 100px; border-radius: 50%; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; margin-bottom: 20px; font-size: 24px; }
+      .btn-jump:active { background: rgba(74, 222, 128, 0.5); }
+
+      /* Animations */
+      @keyframes flashRed {
+        0%, 100% { background-color: transparent; }
+        50% { background-color: rgba(255, 0, 0, 0.3); }
+      }
+      .damage-flash { animation: flashRed 0.2s linear; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="typescript,react">
+        const { useState, useEffect, useRef, useLayoutEffect } = React;
+
+        // ==========================================
+        // 1. CONSTANTS & CONFIG
+        // ==========================================
+        const SCREEN_WIDTH = 320;
+        const SCREEN_HEIGHT = 240;
+        const GRAVITY = 0.5;
+        const JUMP_FORCE = -8.5;
+        const MOVE_SPEED = 3;
+        const CONVEYOR_SPEED = 1.5;
+        const MAX_HP = 3;
+        
+        // TODO: Replace this URL with your actual uploaded image URL or Base64 string
+        const VICTORY_PHOTO_URL = "https://images.unsplash.com/photo-1566576912902-1d6360185c8c?q=80&w=1000&auto=format&fit=crop"; 
+        
+        // Colors
+        const PAL = {
+            _: null,
+            W: '#ffffff', K: '#000000', 
+            G: '#4ade80', D: '#166534', // D: Dark Green (Shading)
+            R: '#ef4444', 
+            Y: '#facc15', O: '#f97316', // O: Orange (Shading)
+            B: '#3b82f6', 
+            P: '#d946ef',                
+            S: '#9ca3af',               // S: Silver/Grey
+            Lava: '#ff4500',             
+            Gold: '#FFD700',             
+            Sky:  '#231a38',             
+            SkyL: '#483b66',             
+            Castle: '#4a4a5a',           
+            CastleD: '#2d2d38',          
+        };
+
+        // ==========================================
+        // 2. SPRITES
+        // ==========================================
+        // Side-view Yoshi (Green)
+        const YOSHI_SPRITE = [
+            "________R_______", // Top Spike
+            "______RGG_______", // Mid Spike
+            "_____RGGGG______", // Low Spike
+            "____GGGGWKW_____", // Eye
+            "____GGGGWWW_____",
+            "____GGGGGGG_____", // Nose
+            "____GGGGGDD_____", // Nostril
+            "_____WWWWW______", // Jaw
+            "__R_GGGGGG______", // Back Shell starts
+            "_RR_GGWWWWG_____", // Body
+            "_RR_GGWWWWG_____",
+            "_RR_GGGGGGG_____", // Leg top
+            "_____GG__GG_____",
+            "____OO___OO_____",
+            "___OOO___OOO____"
+        ];
+
+        // Detailed Bowser in Clown Car
+        const BOWSER_JR_SPRITE = [
+            "___________RR___________",
+            "_________RRRRR__________",
+            "________RRRRRRR_________",
+            "______WWOOOOOOOOWW______", // Horns + Orange Head Top
+            "_____WWOOOYYYOOOWW______", // Head Shading
+            "_____WWOOKYYYKOOWW______", // Eyes (Black pupils)
+            "_______YYYYYYYYYY_______", // Snout
+            "_______YYYYYYYYYY_______",
+            "______DGGGGGGGGD______",   // Shell with Dark Green edges
+            "____DGGGGGGGGGGGGD____",
+            "___WWWWWWWWWWWWWWWWWW___", // Car Body Start
+            "__WWK B WWWWWWWW B KWW__", // Car Eyes (Angry)
+            "__WWWWWWWWWWWWWWWWWWWW__",
+            "__WWWWWWWWWWWWWWWWWWWW__",
+            "__WWWWWWWWWWWWWWWWWWWW__",
+            "___WWWWWWWWWWWWWWWWWW___",
+            "____WWWWWWWWWWWWWWWW____",
+            "_________S____S_________", // Propeller (Silver)
+        ];
+
+        const FIREBALL_SPRITE = [
+            "____RR____",
+            "__RRYYRR__",
+            "__RYYYYR__",
+            "__RRYYRR__",
+            "____RR____",
+        ];
+
+        const POW_SPRITE = [
+            "BBBBBBBBBBBB",
+            "BWWWWWWWWWWBWB",
+            "BWBBBBBBBBWB",
+            "BWBWWWWWWBWB",
+            "BWBWBBBBWBWB",
+            "BWBWBBBBWBWB",
+            "BWBWWWWWWBWB",
+            "BWBBBBBBBBWB",
+            "BWWWWWWWWWWBWB",
+            "BBBBBBBBBBBB",
+        ];
+
+        const MELON_SPRITE = [
+            "____DGDG____",
+            "__DGGGGDGG__",
+            "__GGGGGGGG__",
+            "__DGGGGDGG__",
+            "__GGGGGGGG__",
+            "____DGDG____",
+        ];
+
+        const GIFT_SPRITE = [
+            "____RRRR____",
+            "___RRRRRR___",
+            "__RR____RR__",
+            "__WWGWWGWW__",
+            "__WWGWWGWW__",
+            "__GGWGGWGG__",
+            "__GGWGGWGG__",
+            "__WWGWWGWW__",
+            "__WWGWWGWW__",
+            "__GGWGGWGG__",
+            "__GGWGGWGG__",
+            "__GGGGGGGG__",
+        ];
+
+        const BAT_SPRITE = [
+            "__K_______K__",
+            "_K_K_____K_K_",
+            "K___KKKKK___K",
+            "_K_________K_",
+            "__KKKKKKKKK__",
+        ];
+
+        const HEART_SPRITE = [
+            "_RR_RR_",
+            "RRRRRRR",
+            "RRRRRRR",
+            "_RRRRR_",
+            "__RRR__",
+            "___R___"
+        ];
+
+        // ==========================================
+        // 3. AUDIO
+        // ==========================================
+        class AudioEngine {
+            constructor() { this.ctx = null; }
+            getContext() {
+                if (!this.ctx) {
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    if (AC) this.ctx = new AC();
+                }
+                return this.ctx;
+            }
+            playJump() {
+                const ctx = this.getContext(); if(!ctx) return;
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.frequency.setValueAtTime(150, ctx.currentTime);
+                o.frequency.linearRampToValueAtTime(300, ctx.currentTime + 0.1);
+                g.gain.setValueAtTime(0.1, ctx.currentTime);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + 0.1);
+            }
+            playHit() { // Hitting Boss
+                const ctx = this.getContext(); if(!ctx) return;
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.type = 'square';
+                o.frequency.setValueAtTime(100, ctx.currentTime);
+                o.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.2);
+                g.gain.setValueAtTime(0.2, ctx.currentTime);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + 0.2);
+            }
+            playExplosion() {
+                const ctx = this.getContext(); if(!ctx) return;
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.type = 'sawtooth';
+                o.frequency.setValueAtTime(50, ctx.currentTime);
+                o.frequency.linearRampToValueAtTime(10, ctx.currentTime + 0.5);
+                g.gain.setValueAtTime(0.3, ctx.currentTime);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + 0.5);
+            }
+            playPowerUp() {
+                const ctx = this.getContext(); if(!ctx) return;
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.type = 'sine';
+                o.frequency.setValueAtTime(400, ctx.currentTime);
+                o.frequency.linearRampToValueAtTime(800, ctx.currentTime + 0.2);
+                g.gain.setValueAtTime(0.1, ctx.currentTime);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + 0.2);
+            }
+            playFanfare() {
+                const ctx = this.getContext(); if(!ctx) return;
+                [523, 659, 783, 1046, 783, 1046, 1318].forEach((f, i) => {
+                    const o = ctx.createOscillator(); const g = ctx.createGain();
+                    o.type = 'triangle';
+                    o.frequency.value = f;
+                    g.gain.setValueAtTime(0.1, ctx.currentTime + i*0.1);
+                    g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i*0.1 + 0.3);
+                    o.connect(g); g.connect(ctx.destination);
+                    o.start(ctx.currentTime + i*0.1);
+                    o.stop(ctx.currentTime + i*0.1 + 0.4);
+                });
+            }
+            playDamage() {
+                const ctx = this.getContext(); if(!ctx) return;
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.type = 'sawtooth';
+                o.frequency.setValueAtTime(200, ctx.currentTime);
+                o.frequency.linearRampToValueAtTime(50, ctx.currentTime + 0.2);
+                g.gain.setValueAtTime(0.2, ctx.currentTime);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + 0.2);
+            }
+            playGameOver() {
+                const ctx = this.getContext(); if(!ctx) return;
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.type = 'square';
+                o.frequency.setValueAtTime(300, ctx.currentTime);
+                o.frequency.linearRampToValueAtTime(50, ctx.currentTime + 0.8);
+                g.gain.setValueAtTime(0.3, ctx.currentTime);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + 0.8);
+            }
+        }
+        const audio = new AudioEngine();
+
+        // ==========================================
+        // 4. GAME ENGINE
+        // ==========================================
+        const App = () => {
+            const canvasRef = useRef(null);
+            const requestRef = useRef();
+            const frameRef = useRef(0);
+            
+            // Layout
+            const [canvasSize, setCanvasSize] = useState({ w: SCREEN_WIDTH, h: SCREEN_HEIGHT });
+            const victoryImgRef = useRef(null);
+            
+            // Game State
+            const [gameState, setGameState] = useState('START'); // START, PLAYING, VICTORY, GAMEOVER
+            const [flash, setFlash] = useState(false);
+            
+            // Physics Entities
+            // Added `hp`
+            const yoshi = useRef({ x: 50, y: 150, vx: 0, vy: 0, w: 16, h: 18, grounded: false, invuln: 0, facing: 1, hp: MAX_HP });
+            const boss = useRef({ x: 140, y: 30, w: 48, h: 36, hp: 5, dir: 1, moveTimer: 0, state: 'idle', flashTimer: 0 });
+            const projectiles = useRef([]); 
+            const items = useRef([]); 
+            const particles = useRef([]);
+            const conveyor = useRef({ offset: 0 }); 
+            
+            // Atmosphere
+            const lightningTimer = useRef(0);
+            const bats = useRef(Array(5).fill(0).map(() => ({
+                x: Math.random() * SCREEN_WIDTH,
+                y: Math.random() * 100,
+                speed: 0.5 + Math.random() * 1,
+                offset: Math.random() * Math.PI * 2
+            })));
+
+            // Victory Animation State
+            const victoryAnim = useRef({ rotation: 0 });
+
+            // Inputs
+            const keys = useRef({ left: false, right: false, jump: false });
+
+            // Load Victory Image
+            useEffect(() => {
+                const img = new Image();
+                img.src = VICTORY_PHOTO_URL;
+                img.onload = () => { victoryImgRef.current = img; };
+            }, []);
+
+            // Layout Calculation
+            useLayoutEffect(() => {
+                const handleResize = () => {
+                    const w = window.innerWidth, h = window.innerHeight;
+                    const r = SCREEN_WIDTH / SCREEN_HEIGHT;
+                    if (w/h > r) setCanvasSize({ w: h*r, h: h });
+                    else setCanvasSize({ w: w, h: w/r });
+                };
+                window.addEventListener('resize', handleResize);
+                handleResize();
+                return () => window.removeEventListener('resize', handleResize);
+            }, []);
+
+            // Input Handlers
+            const handleTouch = (key, pressed) => {
+                keys.current[key] = pressed;
+                if (pressed) {
+                    if (gameState === 'START' || gameState === 'GAMEOVER') initGame();
+                }
+            };
+
+            const initGame = () => {
+                yoshi.current = { x: 50, y: 160, vx: 0, vy: 0, w: 16, h: 18, grounded: false, invuln: 0, facing: 1, hp: MAX_HP };
+                boss.current = { x: 140, y: 30, w: 48, h: 36, hp: 5, dir: 1, moveTimer: 0, state: 'idle', flashTimer: 0 };
+                projectiles.current = [];
+                items.current = [];
+                particles.current = [];
+                lightningTimer.current = 0;
+                setGameState('PLAYING');
+            };
+
+            const spawnItem = () => {
+                if (items.current.length > 0) return;
+                const type = Math.random() > 0.5 ? 'POW' : 'MELON';
+                const x = 50 + Math.random() * (SCREEN_WIDTH - 100);
+                const y = type === 'POW' ? 120 : 180; 
+                items.current.push({ x, y, type, w: 16, h: 16, active: true });
+            };
+
+            const damageBoss = () => {
+                if (boss.current.flashTimer > 0 || boss.current.hp <= 0) return;
+                boss.current.hp--;
+                boss.current.flashTimer = 30; // 0.5s flash
+                audio.playHit();
+                
+                // Spawn particles
+                for(let i=0; i<10; i++) {
+                    particles.current.push({
+                        x: boss.current.x + 24, y: boss.current.y + 18,
+                        vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10,
+                        life: 30, color: PAL.R
+                    });
+                }
+
+                if (boss.current.hp <= 0) {
+                    boss.current.state = 'dying';
+                    audio.playExplosion();
+                }
+            };
+
+            const damageYoshi = () => {
+                 const Y = yoshi.current;
+                 if (Y.invuln > 0) return;
+                 
+                 Y.hp--;
+                 audio.playDamage();
+                 
+                 if (Y.hp <= 0) {
+                     setGameState('GAMEOVER');
+                     audio.playGameOver();
+                 } else {
+                     Y.invuln = 60;
+                     Y.vy = -5;
+                     setFlash(true);
+                     setTimeout(() => setFlash(false), 100);
+                 }
+            };
+
+            const update = () => {
+                if (gameState !== 'PLAYING') return; 
+                
+                const Y = yoshi.current;
+                const B = boss.current;
+
+                // --- ATMOSPHERE ---
+                // Lightning
+                if (lightningTimer.current > 0) lightningTimer.current--;
+                else if (Math.random() < 0.005) lightningTimer.current = 10; // Flash for 10 frames
+
+                // Bats
+                bats.current.forEach(b => {
+                    b.x += b.speed;
+                    if (b.x > SCREEN_WIDTH + 20) b.x = -20;
+                    b.y += Math.sin(frameRef.current * 0.05 + b.offset) * 0.5;
+                });
+
+                // --- YOSHI PHYSICS ---
+                if (keys.current.left) {
+                    Y.vx = -MOVE_SPEED;
+                    Y.facing = -1;
+                } else if (keys.current.right) {
+                    Y.vx = MOVE_SPEED;
+                    Y.facing = 1;
+                } else {
+                    Y.vx = 0;
+                }
+
+                if (keys.current.jump && Y.grounded) {
+                    Y.vy = JUMP_FORCE;
+                    Y.grounded = false;
+                    audio.playJump();
+                }
+
+                // Apply Conveyor (pushes right)
+                if (Y.grounded) {
+                    Y.vx += CONVEYOR_SPEED;
+                }
+
+                Y.vy += GRAVITY;
+                Y.x += Y.vx;
+                Y.y += Y.vy;
+
+                // Floor Collision
+                if (Y.y > 180) { // Ground level
+                    Y.y = 180;
+                    Y.vy = 0;
+                    Y.grounded = true;
+                }
+                // Walls
+                if (Y.x < 0) Y.x = 0;
+                if (Y.x > SCREEN_WIDTH - Y.w) Y.x = SCREEN_WIDTH - Y.w;
+
+                // Invulnerability
+                if (Y.invuln > 0) Y.invuln--;
+
+
+                // --- BOSS AI ---
+                if (B.state !== 'dying' && B.state !== 'dead') {
+                    // LIVE BOSS BEHAVIOR
+                    B.moveTimer++;
+                    B.x += Math.sin(B.moveTimer * 0.03) * 2; // Hover movement
+                    if (B.x < 20) B.x = 20; 
+                    if (B.x > SCREEN_WIDTH - 60) B.x = SCREEN_WIDTH - 60; // Adjust for larger sprite
+
+                    if (B.flashTimer > 0) B.flashTimer--;
+
+                    // Attack
+                    if (frameRef.current % 120 === 0) { // Shoot every 2s
+                        projectiles.current.push({
+                            x: B.x + 20, y: B.y + 36, vx: 0, vy: 3, type: 'fire', w: 8, h: 8
+                        });
+                    }
+
+                    // Spawn Items randomly
+                    if (frameRef.current % 300 === 0) spawnItem();
+
+                } else if (B.state === 'dying') {
+                    // DYING ANIMATION
+                    B.y += 1.5;
+                    B.x += (Math.random()-0.5)*6; // Violent Shake
+                    if (frameRef.current % 4 === 0) {
+                         particles.current.push({
+                            x: B.x + Math.random()*32, y: B.y + Math.random()*32,
+                            vx: (Math.random()-0.5)*8, vy: (Math.random()-0.5)*8,
+                            life: 20, color: PAL.O
+                        });
+                    }
+                    if (B.y > 150) {
+                        B.state = 'dead'; // Boss is officially dead
+                        // Spawn the GIFT at the Boss's crash location
+                        items.current = [{ x: B.x, y: 160, type: 'GIFT', w: 32, h: 32, active: true }];
+                        audio.playPowerUp();
+                    }
+                } 
+
+                // --- PROJECTILES ---
+                projectiles.current.forEach((p, i) => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    if (p.y > SCREEN_HEIGHT || p.y < 0) projectiles.current.splice(i, 1);
+                    
+                    // Collision with Yoshi
+                    if (p.type === 'fire') {
+                        if (p.x < Y.x + Y.w && p.x + p.w > Y.x && p.y < Y.y + Y.h && p.y + p.w > Y.y) {
+                            damageYoshi();
+                            if(Y.invuln > 0) Y.vx = p.x < Y.x ? 5 : -5;
+                        }
+                    }
+
+                    // Collision with Boss (Seeds)
+                    if (p.type === 'seed' && B.state !== 'dying' && B.state !== 'dead') {
+                        if (p.x < B.x + B.w && p.x + p.w > B.x && p.y < B.y + B.h && p.y + p.w > B.y) {
+                            damageBoss();
+                            projectiles.current.splice(i, 1);
+                        }
+                    }
+                });
+
+                // --- ITEMS & INTERACTION ---
+                items.current.forEach((it, i) => {
+                    if (!it.active) return;
+                    
+                    // Simple AABB
+                    if (Y.x < it.x + it.w && Y.x + Y.w > it.x && Y.y < it.y + it.h && Y.y + Y.h > it.y) {
+                        
+                        if (it.type === 'POW') {
+                            if (Y.vy < 0 && Y.y > it.y) {
+                                it.active = false;
+                                setFlash(true); setTimeout(() => setFlash(false), 200);
+                                damageBoss();
+                                items.current.splice(i, 1);
+                                audio.playPowerUp();
+                            }
+                        } else if (it.type === 'MELON') {
+                            it.active = false;
+                            items.current.splice(i, 1);
+                            audio.playPowerUp();
+                            for(let k=-1; k<=1; k++) {
+                                projectiles.current.push({
+                                    x: Y.x, y: Y.y, vx: k*2, vy: -6, type: 'seed', w: 4, h: 4
+                                });
+                            }
+                        } else if (it.type === 'GIFT') {
+                            // VICTORY TRIGGER
+                            audio.playFanfare();
+                            setGameState('VICTORY');
+                        }
+                    }
+                });
+
+                // --- PARTICLES ---
+                particles.current.forEach((p, i) => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.life--;
+                    if (p.life <= 0) particles.current.splice(i, 1);
+                });
+
+                // --- CONVEYOR VISUAL ---
+                conveyor.current.offset -= CONVEYOR_SPEED;
+                if (conveyor.current.offset < -16) conveyor.current.offset = 0;
+            };
+
+            const drawSprite = (ctx, sprite, x, y, scale=2, colorMap=null, flip=false) => {
+                if (!sprite) return;
+                const h = sprite.length;
+                const w = sprite[0].length;
+                for(let r=0; r<h; r++) {
+                    for(let c=0; c<w; c++) {
+                        const char = sprite[r][c];
+                        let color = PAL[char];
+                        if (colorMap && colorMap[char]) color = colorMap[char];
+                        if (color) {
+                            const drawX = flip ? (w - 1 - c) : c;
+                            ctx.fillStyle = color;
+                            ctx.fillRect(Math.floor(x + drawX*scale), Math.floor(y + r*scale), scale, scale);
+                        }
+                    }
+                }
+            };
+
+            const drawCastleBackground = (ctx) => {
+                // Towers
+                const towers = [20, 90, 230, 280];
+                const towerW = 30;
+                
+                ctx.fillStyle = PAL.CastleD;
+                // Draw distant back wall
+                ctx.fillRect(0, 100, SCREEN_WIDTH, SCREEN_HEIGHT - 100);
+
+                // Draw Towers
+                towers.forEach(x => {
+                    ctx.fillStyle = PAL.Castle;
+                    ctx.fillRect(x, 60, towerW, 140);
+                    // Battlements
+                    ctx.fillRect(x - 2, 55, towerW + 4, 10);
+                    ctx.fillStyle = PAL.CastleD;
+                    ctx.fillRect(x + 5, 55, 5, 5);
+                    ctx.fillRect(x + 18, 55, 5, 5);
+                    
+                    // Window
+                    ctx.fillStyle = 'black';
+                    ctx.fillRect(x + 10, 90, 10, 15);
+                    ctx.beginPath(); ctx.arc(x + 15, 90, 5, Math.PI, 0); ctx.fill();
+                });
+
+                // Main Wall
+                ctx.fillStyle = PAL.Castle;
+                ctx.fillRect(40, 120, 240, 80);
+                
+                // Big Gate
+                ctx.fillStyle = '#221100'; // Dark Wood
+                ctx.beginPath();
+                ctx.arc(SCREEN_WIDTH/2, 180, 25, Math.PI, 0); 
+                ctx.lineTo(SCREEN_WIDTH/2 + 25, 200);
+                ctx.lineTo(SCREEN_WIDTH/2 - 25, 200);
+                ctx.fill();
+                // Gate bars
+                ctx.strokeStyle = '#111';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(SCREEN_WIDTH/2, 155); ctx.lineTo(SCREEN_WIDTH/2, 200);
+                ctx.fill(); ctx.stroke();
+            };
+
+            const drawSunburst = (ctx, cx, cy, radius, rotation) => {
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(rotation);
+                const colors = ['#f59e0b', '#fbbf24']; // Dark gold, Light gold
+                const segments = 24;
+                const angle = (Math.PI * 2) / segments;
+                
+                for (let i = 0; i < segments; i++) {
+                    ctx.fillStyle = i % 2 === 0 ? colors[0] : colors[1];
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.arc(0, 0, radius, i * angle, (i + 1) * angle);
+                    ctx.lineTo(0, 0);
+                    ctx.fill();
+                }
+                ctx.restore();
+            };
+
+            const draw = () => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+                // --- VICTORY SCREEN ---
+                if (gameState === 'VICTORY') {
+                    victoryAnim.current.rotation += 0.01;
+                    drawSunburst(ctx, SCREEN_WIDTH/2, SCREEN_HEIGHT/2, 300, victoryAnim.current.rotation);
+                    const cardW = 260, cardH = 200;
+                    const cardX = (SCREEN_WIDTH - cardW) / 2, cardY = (SCREEN_HEIGHT - cardH) / 2;
+                    ctx.fillStyle = 'white'; ctx.fillRect(cardX, cardY, cardW, cardH);
+                    
+                    // Draw the Photo
+                    if (victoryImgRef.current) {
+                        try {
+                            // Maintain Aspect Ratio roughly within a box
+                            const img = victoryImgRef.current;
+                            const targetH = 120;
+                            const targetW = (img.width / img.height) * targetH;
+                            ctx.drawImage(img, SCREEN_WIDTH/2 - targetW/2, cardY + 50, targetW, targetH);
+                        } catch(e) { /* fallback */ }
+                    } else {
+                        // Fallback if image not loaded
+                         drawSprite(ctx, YOSHI_SPRITE, SCREEN_WIDTH/2 - 20, cardY + 80, 2.5);
+                    }
+
+                    ctx.lineWidth = 4; ctx.strokeStyle = PAL.R; ctx.strokeRect(cardX + 4, cardY + 4, cardW - 8, cardH - 8);
+                    ctx.fillStyle = PAL.R; ctx.font = '900 40px "Arial Black", sans-serif'; 
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText("A賞 GET!", SCREEN_WIDTH/2, cardY + 10);
+                    
+                    ctx.fillStyle = 'black'; ctx.font = 'bold 12px "Hiragino Kaku Gothic Pro", "Meiryo", sans-serif';
+                    ctx.fillText("特大ヨッシーのぬいぐるみ", SCREEN_WIDTH/2, cardY + 175);
+                    return;
+                }
+
+                if (gameState === 'GAMEOVER') {
+                    ctx.fillStyle = 'black';
+                    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+                    ctx.fillStyle = '#ef4444';
+                    ctx.font = '900 30px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText("GAME OVER", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10);
+                    
+                    ctx.fillStyle = 'white';
+                    ctx.font = '14px monospace';
+                    ctx.fillText("Tap to Retry", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20);
+                    return;
+                }
+
+                // --- GAMEPLAY DRAWING ---
+
+                // 1. Background (Haunted Castle)
+                // Sky
+                if (lightningTimer.current > 0) ctx.fillStyle = PAL.SkyL;
+                else ctx.fillStyle = PAL.Sky;
+                ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+                
+                // Bats (Background layer)
+                ctx.fillStyle = '#000';
+                bats.current.forEach(b => {
+                     drawSprite(ctx, BAT_SPRITE, b.x, b.y, 1);
+                });
+
+                // Castle
+                drawCastleBackground(ctx);
+                
+                // Bottom Pit (Abyss)
+                ctx.fillStyle = '#0a0a10';
+                ctx.fillRect(0, SCREEN_HEIGHT - 30, SCREEN_WIDTH, 30);
+                
+                // Conveyor Belt (Stone Bricks)
+                ctx.fillStyle = '#444'; // Dark Stone
+                ctx.fillRect(0, 200, SCREEN_WIDTH, 40);
+                const floorY = 200;
+                for(let x = conveyor.current.offset; x < SCREEN_WIDTH; x+=32) {
+                    ctx.fillStyle = '#555'; // Bricks
+                    ctx.fillRect(x, floorY, 30, 15);
+                    ctx.fillRect(x - 16, floorY + 16, 30, 15); // Staggered brick
+                    
+                    // Simple highlight
+                    ctx.fillStyle = '#666';
+                    ctx.fillRect(x, floorY, 30, 2);
+                    ctx.fillRect(x - 16, floorY + 16, 30, 2);
+                }
+
+                // 2. Game Objects
+                const Y = yoshi.current;
+                const B = boss.current;
+
+                // Items
+                items.current.forEach(it => {
+                    let sprite = null;
+                    if (it.type === 'POW') sprite = POW_SPRITE;
+                    else if (it.type === 'MELON') sprite = MELON_SPRITE;
+                    else if (it.type === 'GIFT') sprite = GIFT_SPRITE;
+                    const s = it.type === 'GIFT' ? 2 : 2;
+                    const bounce = it.type === 'GIFT' ? Math.sin(frameRef.current * 0.1) * 3 : 0;
+                    if (sprite) drawSprite(ctx, sprite, it.x, it.y + bounce, s);
+                    if (it.type === 'GIFT') {
+                         ctx.fillStyle = 'white'; ctx.font = '10px monospace';
+                         ctx.textAlign = 'center'; ctx.fillText("GET IT!", it.x + 16, it.y - 10 + bounce);
+                    }
+                });
+
+                // Yoshi (Flip if facing left)
+                if (Y.invuln % 10 < 5) {
+                     drawSprite(ctx, YOSHI_SPRITE, Y.x, Y.y, 2, null, Y.facing === -1);
+                }
+
+                // Boss
+                if (B.state !== 'dead') {
+                    const map = B.flashTimer % 4 >= 2 ? {
+                        'R':PAL.W, 'O':PAL.W, 'G':PAL.W, 'W':PAL.W, 'Y':PAL.W, 'B':PAL.W, 'K':PAL.W, 'D':PAL.W, 'S':PAL.W
+                    } : null;
+                    drawSprite(ctx, BOWSER_JR_SPRITE, B.x, B.y, 2, map);
+                }
+
+                // Projectiles
+                projectiles.current.forEach(p => {
+                    if (p.type === 'fire') drawSprite(ctx, FIREBALL_SPRITE, p.x, p.y, 2);
+                    else {
+                        ctx.fillStyle = 'black'; ctx.fillRect(p.x, p.y, 4, 4);
+                    }
+                });
+
+                // Particles
+                particles.current.forEach(p => {
+                    ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 4, 4);
+                });
+
+                // 3. UI
+                // Boss HP
+                if (B.state !== 'dead') {
+                    ctx.fillStyle = 'black'; ctx.fillRect(SCREEN_WIDTH/2 - 52, 10, 104, 14);
+                    ctx.fillStyle = PAL.R; ctx.fillRect(SCREEN_WIDTH/2 - 50, 12, 100 * (B.hp / 5), 10);
+                    ctx.strokeStyle = 'white'; ctx.strokeRect(SCREEN_WIDTH/2 - 52, 10, 104, 14);
+                }
+
+                // Player Hearts
+                for(let i=0; i<MAX_HP; i++) {
+                     if (i < Y.hp) {
+                         drawSprite(ctx, HEART_SPRITE, 10 + i*18, 10, 2);
+                     } else {
+                         // Empty heart placeholder (optional, just skip for now)
+                     }
+                }
+
+                // Screens
+                if (gameState === 'START') {
+                    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0,0,SCREEN_WIDTH, SCREEN_HEIGHT);
+                    ctx.fillStyle 
+                    ctx.fillText("FINAL BATTLE", SCREEN_WIDTH/2, 100);
+                    ctx.fillStyle = 'white'; ctx.font = '12px monospace';
+                    ctx.fillText("Bowser Jr. stole the gift!", SCREEN_WIDTH/2, 120);
+                    ctx.fillStyle = PAL.G; ctx.fillText("TAP JUMP TO START", SCREEN_WIDTH/2, 160);
+                }
+            };
+
+            const loop = () => {
+                frameRef.current++;
+                update();
+                draw();
+                requestRef.current = requestAnimationFrame(loop);
+            };
+
+            useEffect(() => {
+                requestRef.current = requestAnimationFrame(loop);
+                return () => cancelAnimationFrame(requestRef.current);
+            }, [gameState]);
+
+            return (
+                <div className={`${flash ? 'damage-flash' : ''}`} style={{width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a0505'}}>
+                    <canvas 
+                        ref={canvasRef} 
+                        width={SCREEN_WIDTH} 
+                        height={SCREEN_HEIGHT}
+                        style={{ width: canvasSize.w, height: canvasSize.h }}
+                    />
+                    
+                    {gameState !== 'VICTORY' && gameState !== 'GAMEOVER' && (
+                        <div className="controls-layer" style={{ width: canvasSize.w }}>
+                            <div className="d-pad">
+                                <div 
+                                    className="btn btn-left" 
+                                    onPointerDown={(e) => { e.preventDefault(); handleTouch('left', true); }}
+                                    onPointerUp={(e) => { e.preventDefault(); handleTouch('left', false); }}
+                                    onPointerLeave={() => handleTouch('left', false)}
+                                >←</div>
+                                <div 
+                                    className="btn btn-right"
+                                    onPointerDown={(e) => { e.preventDefault(); handleTouch('right', true); }}
+                                    onPointerUp={(e) => { e.preventDefault(); handleTouch('right', false); }}
+                                    onPointerLeave={() => handleTouch('right', false)}
+                                >→</div>
+                            </div>
+                            <div className="action-pad">
+                                <div 
+                                    className="btn btn-jump"
+                                    onPointerDown={(e) => { e.preventDefault(); handleTouch('jump', true); }}
+                                    onPointerUp={(e) => { e.preventDefault(); handleTouch('jump', false); }}
+                                    onPointerLeave={() => handleTouch('jump', false)}
+                                >A</div>
+                            </div>
+                        </div>
+                    )}
+                    
+                     {(gameState === 'GAMEOVER' || gameState === 'START') && (
+                        <div style={{position:'absolute', top:0, left:0, width:'100%', height:'100%', zIndex:100}} 
+                             onClick={() => initGame()}>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
